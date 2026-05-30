@@ -1,0 +1,121 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == "limon2581444@gmail.com" ||
+        request.auth.token.email == "limon4444@gmail.com"
+      );
+    }
+
+    // --- Global Payment Requests ---
+    match /payment_requests/{requestId} {
+      allow create: if isSignedIn() && isValidId(requestId) && isValidPayment(incoming());
+      allow list, get: if isAdmin();
+      allow update, delete: if isAdmin();
+
+      function isValidPayment(data) {
+        return data.userId == request.auth.uid
+          && data.senderNumber is string && data.senderNumber.size() >= 10 && data.senderNumber.size() <= 15
+          && data.trxId is string && data.trxId.size() >= 5 && data.trxId.size() <= 50
+          && data.status == 'PENDING'
+          && data.timestamp == request.time;
+      }
+    }
+
+    // --- Support Messages ---
+    match /support_messages/{messageId} {
+      allow create: if (isSignedIn() && isValidId(messageId) && isValidMessage(incoming()))
+                      || (isAdmin() && isValidId(messageId) && isValidAdminReply(incoming()));
+      allow list, get: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+
+      function isValidMessage(data) {
+        return data.userId == request.auth.uid
+          && data.text is string && data.text.size() > 0 && data.text.size() <= 1000
+          && data.sender == 'USER'
+          && data.timestamp == request.time;
+      }
+
+      function isValidAdminReply(data) {
+        return data.userId is string // The user this message is for
+          && data.text is string && data.text.size() > 0 && data.text.size() <= 1000
+          && data.sender == 'ADMIN'
+          && data.timestamp == request.time;
+      }
+    }
+
+    // --- Admin List ---
+    match /admins/{adminId} {
+      allow read: if isSignedIn(); // Users need to check if they are admin to toggle UI
+      allow write: if false; // Only manageable via console
+    }
+
+    // --- Users Collection ---
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming());
+      allow update: if (isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'lastLogin', 'freeUsageCount', 'subscriptionStatus'])
+      )) || isAdmin();
+
+      function isValidUser(data) {
+        return data.uid == userId
+          && (data.get('displayName', null) == null || (data.displayName is string && data.displayName.size() <= 100))
+          && (data.get('photoURL', null) == null || (data.photoURL is string && data.photoURL.size() <= 500))
+          && (data.get('freeUsageCount', 0) is int && data.get('freeUsageCount', 0) >= 0 && data.get('freeUsageCount', 0) <= 3)
+          && (data.get('subscriptionStatus', 'NONE') in ['NONE', 'PENDING', 'ACTIVE'])
+          && (data.get('subscriptionExpiresAt', null) == null || data.subscriptionExpiresAt is timestamp)
+          && data.lastLogin is timestamp;
+      }
+
+      // --- Analyses Subcollection ---
+      match /analyses/{analysisId} {
+        allow list: if isOwner(userId) || isAdmin();
+        allow get: if (isOwner(userId) || isAdmin()) && isValidId(analysisId);
+        allow create: if isOwner(userId) && isValidId(analysisId) && isValidAnalysis(incoming()) && (
+          get(/databases/$(database)/documents/users/$(userId)).data.get('freeUsageCount', 0) < 3 || (
+            get(/databases/$(database)/documents/users/$(userId)).data.get('subscriptionStatus', 'NONE') == 'ACTIVE' &&
+            get(/databases/$(database)/documents/users/$(userId)).data.get('subscriptionExpiresAt', request.time) > request.time
+          )
+        );
+        allow delete: if isOwner(userId) || isAdmin();
+
+        function isValidAnalysis(data) {
+          return data.userId == request.auth.uid
+            && data.prediction in ['UP', 'DOWN', 'NEUTRAL']
+            && data.confidence is number && data.confidence >= 0 && data.confidence <= 100
+            && data.explanation is string && data.explanation.size() <= 2000
+            && data.timestamp == request.time;
+        }
+      }
+    }
+  }
+}

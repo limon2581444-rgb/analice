@@ -1,0 +1,80 @@
+{
+  "entities": {
+    "user": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastLogin": { "type": "string", "format": "date-time" },
+        "freeUsageCount": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "subscriptionStatus": { "type": "string", "enum": ["NONE", "PENDING", "ACTIVE"] },
+        "subscriptionExpiresAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "analysis": {
+      "title": "Analysis",
+      "description": "Saved candlestick analysis results",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "image": { "type": "string", "description": "Base64 or URL of chart" },
+        "prediction": { "type": "string", "enum": ["UP", "DOWN", "NEUTRAL"] },
+        "confidence": { "type": "number" },
+        "explanation": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "prediction", "timestamp"]
+    },
+    "paymentRequest": {
+      "title": "Payment Request",
+      "description": "User payment verification requests",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "senderNumber": { "type": "string" },
+        "trxId": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "VERIFIED", "REJECTED"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "senderNumber", "trxId", "status", "timestamp"]
+    },
+    "supportMessage": {
+      "title": "Support Message",
+      "description": "Messages between user and admin",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "text": { "type": "string" },
+        "sender": { "type": "string", "enum": ["USER", "ADMIN"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "read": { "type": "boolean" }
+      },
+      "required": ["userId", "text", "sender", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "Collection of user profiles"
+    },
+    "/users/{userId}/analyses/{analysisId}": {
+      "schema": "analysis",
+      "description": "History of analyses performed by the user"
+    },
+    "/payment_requests/{requestId}": {
+      "schema": "paymentRequest",
+      "description": "Global collection for admin to verify payments"
+    },
+    "/support_messages/{messageId}": {
+      "schema": "supportMessage",
+      "description": "Direct communication between users and administrators"
+    }
+  }
+}
