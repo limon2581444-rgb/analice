@@ -10,12 +10,13 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { TrendingUp, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft } from 'lucide-react';
+import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX } from 'lucide-react';
 import { analyzeChartImage, AnalysisResult } from './services/geminiService';
 import { toPng } from 'html-to-image';
 import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead } from './lib/firebase';
 import { doc, setDoc, serverTimestamp, getDoc, onSnapshot, collection, query, where, orderBy, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { playAnalysisReadySound, playMessageAlertSound, isSoundEnabled, setSoundEnabled } from './utils/audioAlerts';
 
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -55,7 +56,14 @@ export default function App() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'VERIFIED' | 'REJECTED'>('ALL');
+  const [soundEnabled, setSoundEnabledState] = useState<boolean>(() => isSoundEnabled());
   const analysisBoxRef = useRef<HTMLDivElement>(null);
+
+  const toggleSound = () => {
+    const nextVal = !soundEnabled;
+    setSoundEnabledState(nextVal);
+    setSoundEnabled(nextVal);
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -139,6 +147,20 @@ export default function App() {
       orderBy('timestamp', 'asc')
     );
     const unsubscribe = onSnapshot(q, (snap) => {
+      let containsNewAdminMessage = false;
+      snap.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const data = change.doc.data();
+          const isMsgRecent = !data.timestamp || (Math.abs(Date.now() - data.timestamp.toMillis()) < 10000);
+          if (data.sender === 'ADMIN' && isMsgRecent) {
+            containsNewAdminMessage = true;
+          }
+        }
+      });
+      if (containsNewAdminMessage) {
+        playMessageAlertSound();
+      }
+
       setMessages(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (err) => console.error("Chat Error:", err));
     return () => unsubscribe();
@@ -155,6 +177,20 @@ export default function App() {
       orderBy('timestamp', 'desc')
     );
     const unsubscribe = onSnapshot(q, (snap) => {
+      let containsNewUserMessage = false;
+      snap.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const data = change.doc.data();
+          const isMsgRecent = !data.timestamp || (Math.abs(Date.now() - data.timestamp.toMillis()) < 10000);
+          if (data.sender === 'USER' && isMsgRecent) {
+            containsNewUserMessage = true;
+          }
+        }
+      });
+      if (containsNewUserMessage) {
+        playMessageAlertSound();
+      }
+
       const allMsgs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAdminMessages(allMsgs);
       
@@ -477,6 +513,7 @@ export default function App() {
     try {
       const data = await analyzeChartImage(image, "image/png", userContext);
       setResult(data);
+      playAnalysisReadySound();
       
       // Increment free usage for non-admins if not subscribed
       if (!isAdmin && user && userData) {
@@ -679,6 +716,23 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-1.5 md:gap-3 pl-1.5 md:pl-4 border-l border-gray-800">
+            {/* Sound Level Alert Control */}
+            <button
+              onClick={toggleSound}
+              className={`p-1.5 sm:p-2 rounded-lg border transition-all shrink-0 ${
+                soundEnabled 
+                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20' 
+                  : 'bg-rose-500/10 border-rose-500/20 text-rose-400 hover:bg-rose-500/20'
+              }`}
+              title={soundEnabled ? 'Mute Alerts (সাউন্ড বন্ধ করুন)' : 'Unmute Alerts (সাউন্ড চালু করুন)'}
+            >
+              {soundEnabled ? (
+                <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-pulse" />
+              ) : (
+                <VolumeX className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              )}
+            </button>
+
             {user ? (
               <div className="flex items-center gap-1.5 md:gap-3">
                 <div className="hidden md:flex flex-col items-end">
@@ -1203,6 +1257,115 @@ export default function App() {
                                     <span className="text-xs font-mono font-bold text-gray-500">{result.confidence}% PROB</span>
                                   </div>
                                 </div>
+                              </div>
+
+                              {/* Direct Trade Signal Recommendation (সরাসরি ট্রেডিং নির্দেশ) */}
+                              <div className={`p-4 rounded-xl border relative overflow-hidden transition-all duration-300 ${
+                                result.prediction === 'UP' ? 'bg-[#10b981]/10 border-[#10b981]/30 shadow-[0_0_20px_rgba(16,185,129,0.05)]' :
+                                result.prediction === 'DOWN' ? 'bg-[#f43f5e]/10 border-[#f43f5e]/30 shadow-[0_0_20px_rgba(244,63,94,0.05)]' :
+                                'bg-[#f59e0b]/10 border-[#f59e0b]/30'
+                              }`}>
+                                <div className="absolute top-0 right-0 w-32 h-32 blur-2xl opacity-10 rounded-full" />
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+                                  <div className="space-y-1">
+                                    <span className="text-[10px] uppercase tracking-[0.2em] font-black text-gray-400 block font-mono">পরবর্তী ক্যান্ডেল সিগন্যাল (SIGNAL)</span>
+                                    <h3 className={`text-xl font-black italic tracking-tight flex items-center gap-2 ${
+                                      result.prediction === 'UP' ? 'text-emerald-400' :
+                                      result.prediction === 'DOWN' ? 'text-rose-400' :
+                                      'text-amber-400'
+                                    }`}>
+                                      {result.prediction === 'UP' ? (
+                                        <>
+                                          <TrendingUp className="w-5 h-5" />
+                                          UP DIRECTION (উপরে ট্রেড নিন)
+                                        </>
+                                      ) : result.prediction === 'DOWN' ? (
+                                        <>
+                                          <TrendingDown className="w-5 h-5" />
+                                          DOWN DIRECTION (নিচে ট্রেড নিন)
+                                        </>
+                                      ) : (
+                                        <>
+                                          <AlertCircle className="w-5 h-5" />
+                                          WAIT / NEUTRAL (কোনো ট্রেড নিবেন না)
+                                        </>
+                                      )}
+                                    </h3>
+                                    <p className="text-xs text-gray-300 font-medium leading-relaxed max-w-lg">
+                                      {result.prediction === 'UP' ? (
+                                        <span>চার্ট ও ক্যান্ডেল প্যাটার্ন অনুযায়ী পরবর্তী ১ মিনিটের জন্য একটি <strong className="text-emerald-400 underline decoration-emerald-400/30">UP (সবুজ)</strong> ট্রেড নিতে পারেন।</span>
+                                      ) : result.prediction === 'DOWN' ? (
+                                        <span>চার্ট ও ক্যান্ডেল প্যাটার্ন অনুযায়ী পরবর্তী ১ মিনিটের জন্য একটি <strong className="text-rose-400 underline decoration-rose-400/30">DOWN (লাল)</strong> ট্রেড নিতে পারেন।</span>
+                                      ) : (
+                                        <span>মার্কেট এই মুহূর্তে কোনো নির্দিষ্ট ট্রেন্ড অনুসরণ করছে না। কোনো ঝুকিপূর্ণ ট্রেড নিবেন না, পরবর্তী শিওর সিগন্যালের অপেক্ষা করুন।</span>
+                                      )}
+                                    </p>
+                                  </div>
+                                  <div className="w-full sm:w-auto shrink-0 flex items-center justify-between sm:flex-col sm:items-end gap-1 bg-black/50 border border-white/5 p-3 rounded-lg">
+                                    <span className="text-[9px] uppercase tracking-widest text-[#94a3b8] font-black font-mono">নিশ্চয়তা (SURETY)</span>
+                                    <span className={`text-2xl font-black italic tracking-tighter leading-none ${
+                                      result.prediction === 'UP' ? 'text-emerald-400' :
+                                      result.prediction === 'DOWN' ? 'text-rose-400' :
+                                      'text-amber-400'
+                                    }`}>
+                                      {result.confidence}% SURE
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Candle Closing Target Card (ক্যান্ডেল ক্লোজিং নির্দেশ) */}
+                              <div className={`p-5 rounded-xl border-2 border-dashed relative overflow-hidden transition-all duration-300 ${
+                                result.prediction === 'UP' ? 'bg-[#10b981]/5 border-[#10b981]/30 shadow-[0_0_15px_rgba(16,185,129,0.03)]' :
+                                result.prediction === 'DOWN' ? 'bg-[#f43f5e]/5 border-[#f43f5e]/30 shadow-[0_0_15px_rgba(244,63,94,0.03)]' :
+                                'bg-[#f59e0b]/5 border-[#f59e0b]/30'
+                              }`}>
+                                <div className={`absolute top-0 right-0 w-24 h-24 rounded-full blur-xl pointer-events-none opacity-20 ${
+                                  result.prediction === 'UP' ? 'bg-[#10b981]' :
+                                  result.prediction === 'DOWN' ? 'bg-[#f43f5e]' :
+                                  'bg-[#f59e0b]'
+                                }`} />
+                                <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider mb-2">
+                                  <div className={`w-2.5 h-2.5 rounded-full animate-ping shrink-0 ${
+                                    result.prediction === 'UP' ? 'bg-emerald-400' :
+                                    result.prediction === 'DOWN' ? 'bg-rose-400' :
+                                    'bg-amber-400'
+                                  }`} />
+                                  <span className={
+                                    result.prediction === 'UP' ? 'text-emerald-400 font-black' :
+                                    result.prediction === 'DOWN' ? 'text-rose-400 font-black' :
+                                    'text-amber-400 font-black'
+                                  }>
+                                    ক্যান্ডেল ক্লোজিং কনফার্মেশন (CANDLE CLOSING CONFIRMATION)
+                                  </span>
+                                </div>
+                                <h4 className="text-gray-400 text-xs font-semibold mb-3">
+                                  পরবর্তী ক্যান্ডেল সিগন্যালটি ১০০% সফল ও নিশ্চিত হতে কত প্রাইসে বা লেভেলে ক্যান্ডেল ক্লোজ হওয়া পর্যন্ত অপেক্ষা করবেন:
+                                </h4>
+                                <div className="text-xl sm:text-2xl font-black leading-tight tracking-tight bg-black/60 border border-white/5 rounded-xl p-4 shadow-sm select-all">
+                                  {result.entryTarget ? (
+                                    <span className={
+                                      result.prediction === 'UP' ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.3)]' :
+                                      result.prediction === 'DOWN' ? 'text-rose-400 drop-shadow-[0_0_10px_rgba(244,63,94,0.3)]' :
+                                      'text-amber-400'
+                                    }>
+                                      {result.entryTarget}
+                                    </span>
+                                  ) : (
+                                    <span className="text-gray-300 font-bold">
+                                      {result.prediction === 'UP' ? (
+                                        "সবুজ ক্যান্ডেলটি রেজিস্টেন্স লেভেলের বা পূর্ববর্তী ক্যান্ডেলের টপের উপরে ক্লোজ হতে হবে।"
+                                      ) : result.prediction === 'DOWN' ? (
+                                        "লাল ক্যান্ডেলটি সাপোর্ট লেভেলের বা পূর্ববর্তী ক্যান্ডেলের বটমের নিচে ক্লোজ হতে হবে।"
+                                      ) : (
+                                        "মার্কেটের মুভমেন্ট ও ডিরেকশন নিশ্চিত নয়, অনুগ্রহ করে ব্রেকআউট হতে দিন।"
+                                      )}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-gray-500 italic mt-3">
+                                  * ক্যান্ডেল সম্পূর্ণ ক্যান্ডেল টাইম শেষ হয়ে ক্লোজ হওয়ার পূর্বে তাড়াহুড়ো করে এন্ট্রি নিবেন না। ক্লোজিং নিশ্চিত করাই সবচেয়ে নিরাপদ কৌশল।
+                                </p>
                               </div>
 
                               <div className="bg-[#14151a] border border-gray-800 rounded-lg p-4 space-y-4 shadow-inner">
