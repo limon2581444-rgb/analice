@@ -559,7 +559,7 @@ export default function App() {
           }
         });
         const link = document.createElement('a');
-        link.download = `tradelens-analysis-${Date.now()}.png`;
+        link.download = `korim-trader-analysis-${Date.now()}.png`;
         link.href = dataUrl;
         link.click();
       } catch (err) {
@@ -570,7 +570,7 @@ export default function App() {
 
   const copyToClipboard = () => {
     if (result) {
-      const text = `TradeLens AI Analysis:\nPrediction: ${result.prediction}\nConfidence: ${result.confidence}%\nExplanation: ${result.explanation}\nPatterns: ${result.patterns.join(', ')}`;
+      const text = `Korim Trader Analyst AI Analysis:\nPrediction: ${result.prediction}\nConfidence: ${result.confidence}%\nExplanation: ${result.explanation}\nPatterns: ${result.patterns.join(', ')}`;
       navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -706,7 +706,7 @@ export default function App() {
             <Activity className="w-4 h-4 md:w-5 md:h-5 text-black" />
           </div>
           <span className="text-sm sm:text-base md:text-xl font-bold tracking-tight text-white uppercase whitespace-nowrap">
-            Trade<span className="text-emerald-500">Lens</span> AI
+            Korim Trader <span className="text-emerald-500">Analyst</span>
           </span>
         </div>
         <div className="flex items-center space-x-2 md:space-x-6 min-w-0">
@@ -1574,7 +1574,7 @@ export default function App() {
                       </div>
                       <div className="space-y-2">
                         <h3 className="text-xl font-bold text-white uppercase tracking-tighter italic">Login Required</h3>
-                        <p className="text-xs text-gray-500 max-w-[250px]">Please login with your Gmail account to continue with the Tradelens Pro subscription.</p>
+                        <p className="text-xs text-gray-500 max-w-[250px]">Please login with your Gmail account to continue with the Korim Trader Pro subscription.</p>
                       </div>
                       <button 
                         onClick={handleGoogleLogin}
@@ -1587,7 +1587,7 @@ export default function App() {
                     <>
                       <div className="flex justify-between items-start mb-8">
                         <div>
-                          <h2 className="text-2xl font-black text-white italic tracking-tighter">TRADELENS PRO</h2>
+                          <h2 className="text-2xl font-black text-white italic tracking-tighter">KORIM TRADER PRO</h2>
                           <p className="text-[10px] text-gray-500 uppercase tracking-widest font-black">Professional License</p>
                         </div>
                         <div className="text-right">
