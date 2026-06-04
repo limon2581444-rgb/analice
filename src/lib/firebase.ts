@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, User, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, addDoc, collection, serverTimestamp, query, where, getDocs, orderBy, updateDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, addDoc, collection, serverTimestamp, query, where, getDocs, orderBy, updateDoc, onSnapshot } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -114,17 +114,32 @@ export const activateSubscription = async (uid: string) => {
     const currentExpiry = data?.subscriptionExpiresAt?.toDate();
     
     if (currentExpiry && currentExpiry > new Date()) {
-      // Add 26 days to current expiry if still active
+      // Add 30 days to current expiry if still active
       expiresAt = new Date(currentExpiry);
-      expiresAt.setDate(expiresAt.getDate() + 26);
+      expiresAt.setDate(expiresAt.getDate() + 30);
     } else {
-      // Set to 26 days from now
-      expiresAt.setDate(expiresAt.getDate() + 26);
+      // Set to 30 days from now
+      expiresAt.setDate(expiresAt.getDate() + 30);
     }
 
     return await updateDoc(ref, {
       subscriptionStatus: 'ACTIVE',
       subscriptionExpiresAt: expiresAt,
+      verifiedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+};
+
+export const deactivateSubscription = async (uid: string) => {
+  const path = `users/${uid}`;
+  try {
+    const ref = doc(db, 'users', uid);
+    return await updateDoc(ref, {
+      subscriptionStatus: 'NONE',
+      subscriptionExpiresAt: null,
+      verifiedAt: null,
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
@@ -210,5 +225,20 @@ export const markMessageAsRead = async (messageId: string) => {
     return await updateDoc(ref, { read: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
+  }
+};
+
+export const getAllUsersSnap = (callback: (users: any[]) => void) => {
+  const path = 'users';
+  try {
+    const q = query(collection(db, 'users'), orderBy('lastLogin', 'desc'));
+    return onSnapshot(q, (snap) => {
+      const users = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      callback(users);
+    }, (error) => {
+      console.error("Fetch Users Error:", error);
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
   }
 };

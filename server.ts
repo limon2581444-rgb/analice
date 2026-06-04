@@ -73,13 +73,10 @@ async function startServer() {
         5. Include breakout strategy in your Bengali explanation: explain that if the price goes above this candle's top/high, go UP, and if it goes below this candle's bottom/low, go DOWN, indicating that waiting for such confirmations before entering a trade minimizes risk.
         6. CRITICAL ENTRY REQUIREMENT: Identify the current price/level and explicitly state at what exact level or condition the candle needs to close (কত প্রাইসে ক্যান্ডেলটি ক্লোজ হলে পরবর্তী ট্রেড নেওয়া যাবে) to validate the trade direction securely. Mention this closing target level explicitly in Bengali so the user knows exactly where the candle must close to confirm their entry.
         
-        CRITICAL PROMPT INSTRUCTION FOR THE EXPLANATION:
-        Your "explanation" field in the JSON MUST begin with a prominent sentence stating the next candle's trade direction and the exact confidence percentage in Bengali, matching your "prediction" and "confidence" fields.
-        Example of the first sentence:
-        - If prediction is "UP" and confidence is 85: "পরবর্তী ক্যান্ডেল সিগন্যাল: UP (সবুজ), নিশ্চয়তা বা শিউরিটি: ৮৫%। ক্যান্ডেল ক্লোজিং টার্গেট: [এখানে নির্দিষ্ট প্রাইস/লেভেল উল্লেখ করুন] এর উপরে ক্লোজ হলে ট্রেড নিন। [বাকি বিশ্লেষণ নিচে দেওয়া হলো...]"
-        - If prediction is "DOWN" and confidence is 75: "পরবর্তী ক্যান্ডেল সিগন্যাল: DOWN (লাল), নিশ্চয়তা বা শিউরিটি: ৭৫%। ক্যান্ডেল ক্লোজিং টার্গেট: [এখানে নির্দিষ্ট প্রাইস/লেভেল উল্লেখ করুন] এর নিচে ক্লোজ হলে ট্রেড নিন। [বাকি বিশ্লেষণ নিচে দেওয়া হলো...]"
-        - If prediction is "NEUTRAL" and confidence is 50: "পরবর্তী ক্যান্ডেল সিগন্যাল: NEUTRAL (কোনো ট্রেড নিবেন না), নিশ্চয়তা বা শিউরিটি: ৫০%। এই মুহূর্তে সঠিক ক্লোজিং নিশ্চিত নয়। [বাকি বিশ্লেষণ নিচে দেওয়া হলো...]"
-        This is highly important for the user. Then write the rest of the detailed technical analysis, highlighting the precise entry trigger prices/conditions.
+        CRITICAL INSTRUCTION FOR THE EXPLANATION:
+        Your "explanation" field in the JSON should contain only high-quality, professional technical reasoning in Bengali, focusing on the chart patterns, support/resistance, indicators, and breakout strategy.
+        Do NOT write any introductory sentences that repeat the predicted direction (e.g., do NOT start with "পরবর্তী ক্যান্ডেল সিগন্যাল:"), confidence level, or duplicate closing targets. Dive straight into analyzing the candlestick formations, market psychology, and specific market observation details.
+
 
         CRITICAL: Respond ONLY in valid JSON format with the following structure:
         {

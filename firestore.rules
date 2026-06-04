@@ -81,9 +81,10 @@ service cloud.firestore {
     // --- Users Collection ---
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
       allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming());
       allow update: if (isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && (
-        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'lastLogin', 'freeUsageCount', 'subscriptionStatus'])
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'lastLogin', 'freeUsageCount', 'subscriptionStatus', 'subscriptionExpiresAt', 'verifiedAt'])
       )) || isAdmin();
 
       function isValidUser(data) {
@@ -93,6 +94,7 @@ service cloud.firestore {
           && (data.get('freeUsageCount', 0) is int && data.get('freeUsageCount', 0) >= 0 && data.get('freeUsageCount', 0) <= 3)
           && (data.get('subscriptionStatus', 'NONE') in ['NONE', 'PENDING', 'ACTIVE'])
           && (data.get('subscriptionExpiresAt', null) == null || data.subscriptionExpiresAt is timestamp)
+          && (data.get('verifiedAt', null) == null || data.verifiedAt is timestamp)
           && data.lastLogin is timestamp;
       }
 

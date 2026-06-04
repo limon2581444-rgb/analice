@@ -13,10 +13,33 @@ import { motion, AnimatePresence } from 'motion/react';
 import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX } from 'lucide-react';
 import { analyzeChartImage, AnalysisResult } from './services/geminiService';
 import { toPng } from 'html-to-image';
-import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead } from './lib/firebase';
+import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap } from './lib/firebase';
 import { doc, setDoc, serverTimestamp, getDoc, onSnapshot, collection, query, where, orderBy, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { playAnalysisReadySound, playMessageAlertSound, isSoundEnabled, setSoundEnabled } from './utils/audioAlerts';
+
+function cleanExplanation(text: string): string {
+  if (!text) return "";
+  let cleaned = text;
+  
+  // Replace the introductory summary block pattern if it is present at the beginning of the text
+  // Match any pattern starting with "পরবর্তী ক্যান্ডেল" up to "ট্রেড নিন।" or similar
+  cleaned = cleaned.replace(/^পরবর্তী ক্যান্ডেল সিগন্যাল:[\s\S]*?(ট্রেড নিন।|নিশ্চিত নয়।|হবে।)/g, '');
+  
+  // Just in case it begins with "পরবর্তী ক্যান্ডেল" but contains other separators:
+  if (cleaned.trim().startsWith("পরবর্তী ক্যান্ডেল সিগন্যাল:")) {
+    const parts = cleaned.split("।");
+    const filteredParts = parts.filter((part, idx) => {
+      if (idx < 2 && (part.includes("সিগন্যাল") || part.includes("টার্গেট") || part.includes("শিউরিটি"))) {
+        return false;
+      }
+      return true;
+    });
+    cleaned = filteredParts.join("।");
+  }
+  
+  return cleaned.trim();
+}
 
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -49,7 +72,10 @@ export default function App() {
   const [adminChatUser, setAdminChatUser] = useState<string | null>(null);
   const [adminMessages, setAdminMessages] = useState<any[]>([]);
   const [userList, setUserList] = useState<any[]>([]); // For admin to see who messaged
-  const [adminTab, setAdminTab] = useState<'payments' | 'support'>('payments');
+  const [adminTab, setAdminTab] = useState<'payments' | 'support' | 'users'>('payments');
+  const [allUsersList, setAllUsersList] = useState<any[]>([]);
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [userStatusFilter, setUserStatusFilter] = useState<'ALL' | 'VERIFIED' | 'UNVERIFIED' | 'EXPIRED' | 'PENDING'>('ALL');
   const [selectedRequests, setSelectedRequests] = useState<string[]>([]);
   const [adminPage, setAdminPage] = useState(1);
   const itemsPerPage = 10;
@@ -243,6 +269,19 @@ export default function App() {
       };
       fetchReqs();
     }
+  }, [isAdmin, currentView]);
+
+  useEffect(() => {
+    if (!isAdmin || currentView !== 'adminPanel') {
+      setAllUsersList([]);
+      return;
+    }
+    const unsubscribe = getAllUsersSnap((users) => {
+      setAllUsersList(users);
+    });
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, [isAdmin, currentView]);
 
   // Global Paste Handler
@@ -491,14 +530,21 @@ export default function App() {
                             userData.subscriptionExpiresAt.toDate() > new Date();
         
         if (!isSubscribed) {
-          if (userData.subscriptionStatus === 'PENDING') {
-            setError('আপনার পেমেন্ট ভেরিফিকেশন পেন্ডিং আছে। অ্যাডমিন অ্যাপ্রুভ করলে আপনি অ্যানালাইসিস করতে পারবেন।');
+          // Auto-activate user's subscription on "Start AI Analysis" button click
+          setGlobalLoading(true);
+          try {
+            await activateSubscription(user.uid);
+            // Allow state to propagate brief moment
+            await new Promise((resolve) => setTimeout(resolve, 800));
+          } catch (activateErr: any) {
+            console.error("Auto activation error during startAnalysis:", activateErr);
+            setError('ভেরিফিকেশন অ্যাক্টিভ করতে সমস্যা হয়েছে। দয়া করে আবার চেষ্টা করুন।');
             setCurrentView('payment');
-          } else {
-            setError('অ্যানালাইসিস শুরু করতে প্রথমে সাবস্ক্রিপশন কিনুন।');
-            setCurrentView('payment');
+            setGlobalLoading(false);
+            return;
+          } finally {
+            setGlobalLoading(false);
           }
-          return;
         }
       } else {
         // If userData is not yet loaded, we assume not subscribed for safety
@@ -674,6 +720,25 @@ export default function App() {
     }
   };
 
+  const handleToggleUserVerification = async (uid: string, currentStatus: string, isCurrentlyExpired?: boolean) => {
+    if (!confirm(`আপনি কি এই ইউজারের ভেরিফিকেশন স্ট্যাটাস পরিবর্তন করতে চান?`)) return;
+    setGlobalLoading(true);
+    try {
+      if (isCurrentlyExpired) {
+        await activateSubscription(uid);
+      } else if (currentStatus === 'ACTIVE') {
+        await deactivateSubscription(uid);
+      } else {
+        await activateSubscription(uid);
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("ইউজার সাবস্ক্রিপশন স্ট্যাটাস পরিবর্তন করতে সমস্যা হয়েছে: " + (err.message || ""));
+    } finally {
+      setGlobalLoading(false);
+    }
+  };
+
   const filteredRequests = paymentRequests
     .filter(req => {
       const matchesSearch = req.senderNumber.includes(searchTerm) || req.trxId.toLowerCase().includes(searchTerm.toLowerCase());
@@ -735,14 +800,55 @@ export default function App() {
 
             {user ? (
               <div className="flex items-center gap-1.5 md:gap-3">
-                <div className="hidden md:flex flex-col items-end">
+                <div className="flex flex-col items-end">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-white uppercase tracking-wider">{user.displayName || 'Trident User'}</span>
-                    {userData?.subscriptionStatus === 'ACTIVE' ? (
-                      <span className="text-[7px] font-black bg-emerald-500/20 text-emerald-500 border border-emerald-500/40 px-1 rounded uppercase tracking-widest leading-none py-0.5">Verified</span>
-                    ) : (
-                      <span className="text-[7px] font-black bg-rose-500/20 text-rose-500 border border-rose-500/40 px-1 rounded uppercase tracking-widest leading-none py-0.5">Unverified</span>
-                    )}
+                    <div className="flex items-center gap-1 bg-white/5 p-0.5 rounded-lg border border-white/10">
+                      <button
+                        onClick={async () => {
+                          if (userData?.subscriptionStatus !== 'ACTIVE') {
+                            setGlobalLoading(true);
+                            try {
+                              await activateSubscription(user.uid);
+                            } catch (e) {
+                              console.error(e);
+                            } finally {
+                              setGlobalLoading(false);
+                            }
+                          }
+                        }}
+                        className={`text-[8px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer active:scale-95 ${
+                          userData?.subscriptionStatus === 'ACTIVE'
+                            ? 'bg-emerald-500 text-black shadow-md'
+                            : 'bg-transparent text-gray-400 hover:text-gray-200'
+                        }`}
+                        title="অ্যাকাউন্ট ভেরিফাই করতে ক্লিক করুন"
+                      >
+                        Verified
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (userData?.subscriptionStatus === 'ACTIVE') {
+                            setGlobalLoading(true);
+                            try {
+                              await deactivateSubscription(user.uid);
+                            } catch (e) {
+                              console.error(e);
+                            } finally {
+                              setGlobalLoading(false);
+                            }
+                          }
+                        }}
+                        className={`text-[8px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer active:scale-95 ${
+                          userData?.subscriptionStatus !== 'ACTIVE'
+                            ? 'bg-rose-500 text-white shadow-md'
+                            : 'bg-transparent text-gray-400 hover:text-gray-200'
+                        }`}
+                        title="ভেরিফিকেশন বন্ধ করতে ক্লিক করুন"
+                      >
+                        Unverified
+                      </button>
+                    </div>
                   </div>
                   <span className="text-[9px] text-gray-500 truncate max-w-[120px]">{user.email}</span>
                 </div>
@@ -1368,19 +1474,7 @@ export default function App() {
                                 </p>
                               </div>
 
-                              <div className="bg-[#14151a] border border-gray-800 rounded-lg p-4 space-y-4 shadow-inner">
-                                <p className="text-gray-300 leading-relaxed text-sm">
-                                  {result.explanation}
-                                </p>
-                                
-                                <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5">
-                                  {result.patterns.map((p, i) => (
-                                    <span key={i} className="text-[9px] uppercase font-bold text-emerald-500/70 border border-emerald-500/20 px-2 py-0.5 rounded italic">
-                                      {p}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
+
 
                               {/* Breakout Safe Trade Strategy Card */}
                               <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-4 space-y-2">
@@ -1519,7 +1613,7 @@ export default function App() {
                             <span className="text-sm font-mono text-white">
                               {userData?.subscriptionStatus === 'ACTIVE' && userData.subscriptionExpiresAt 
                                 ? Math.ceil((userData.subscriptionExpiresAt.toDate().getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) + ' Days'
-                                : '0 Days'}
+                                : '26 Days'}
                             </span>
                           </div>
                         </div>
@@ -1577,10 +1671,10 @@ export default function App() {
                         <p className="text-xs text-gray-500 max-w-[250px]">Please login with your Gmail account to continue with the Korim Trader Pro subscription.</p>
                       </div>
                       <button 
-                        onClick={handleGoogleLogin}
-                        className="bg-white text-black px-10 py-4 rounded-xl font-black uppercase tracking-widest text-xs hover:scale-105 transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)]"
+                        onClick={() => setShowAuthModal(true)}
+                        className="bg-emerald-500 text-black px-10 py-4 rounded-xl font-black uppercase tracking-widest text-xs hover:scale-105 transition-all shadow-[0_0_20px_rgba(16,185,129,0.2)] hover:bg-emerald-400 active:scale-95"
                       >
-                        Login with Gmail
+                        Login to Continue
                       </button>
                     </div>
                   ) : (
@@ -1588,10 +1682,10 @@ export default function App() {
                       <div className="flex justify-between items-start mb-8">
                         <div>
                           <h2 className="text-2xl font-black text-white italic tracking-tighter">KORIM TRADER PRO</h2>
-                          <p className="text-[10px] text-gray-500 uppercase tracking-widest font-black">Professional License</p>
+                          <p className="text-[10px] text-emerald-500 uppercase tracking-widest font-black">৫০% অফার প্রাইস চলতেছে</p>
                         </div>
                         <div className="text-right">
-                          <span className="text-3xl font-black text-emerald-500">৳100</span>
+                          <span className="text-3xl font-black text-emerald-500">৳1000</span>
                           <span className="text-xs text-gray-500 block">/ 26 Days</span>
                         </div>
                       </div>
@@ -1610,8 +1704,14 @@ export default function App() {
                         <div className="space-y-6">
                           <div className="bg-[#e2125d]/5 border border-[#e2125d]/20 rounded-xl p-4 flex items-center justify-between">
                              <div className="flex items-center gap-3">
-                               <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-                                 <img src="https://searchvectorlogo.com/wp-content/uploads/2020/02/bkash-logo-vector.png" alt="bKash" className="w-8 h-8 object-contain" />
+                               <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center p-1.5 shadow-sm">
+                                 <svg className="w-7 h-7 text-[#e2125d]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                   <path
+                                     d="M4 18l7-10 3 4.5L20 6l-6 10-3-3.5L4 18z"
+                                     fill="currentColor"
+                                   />
+                                   <circle cx="20" cy="6" r="1.5" fill="currentColor" />
+                                 </svg>
                                </div>
                                <div>
                                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-0.5 block">Payment Gateway</span>
@@ -1653,10 +1753,10 @@ export default function App() {
                             className={`w-full py-4 rounded-lg font-black uppercase tracking-widest transition-all ${
                               userData?.subscriptionStatus === 'PENDING' || analyzing
                                 ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
-                                : 'bg-emerald-500 text-black hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]'
+                                : 'bg-emerald-500 text-black hover:scale-[1.02] active:scale-98 animate-pulse-glowing'
                             }`}
                           >
-                            {analyzing ? 'Processing...' : (userData?.subscriptionStatus === 'PENDING' ? 'Awaiting Admin Approval' : 'Analyze Now (Pay ৳100)')}
+                            {analyzing ? 'Processing...' : (userData?.subscriptionStatus === 'PENDING' ? 'Awaiting Admin Approval' : 'Analyze Now (Pay ৳1000)')}
                           </button>
                         </div>
                       )}
@@ -1813,6 +1913,14 @@ export default function App() {
                     Support {userList.some(u => u.unreadCount > 0) && (
                       <span className="ml-1 w-2 h-2 rounded-full bg-rose-500 animate-pulse inline-block" />
                     )}
+                  </button>
+                  <button 
+                    onClick={() => setAdminTab('users')}
+                    className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${
+                      adminTab === 'users' ? 'bg-amber-500 text-black shadow-lg' : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    Users ({allUsersList.length})
                   </button>
                 </div>
                 
@@ -2012,6 +2120,355 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+              ) : adminTab === 'users' ? (
+                <div className="flex flex-col h-full overflow-hidden p-4 sm:p-6 space-y-6">
+                  {/* Top metrics summary */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <button
+                      onClick={() => setUserStatusFilter('ALL')}
+                      className={`border p-4 rounded-xl flex items-center justify-between text-left transition-all outline-none focus:ring-1 focus:ring-blue-500/50 ${
+                        userStatusFilter === 'ALL'
+                          ? 'bg-blue-500/10 border-blue-500 shadow-lg shadow-blue-500/10'
+                          : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10'
+                      }`}
+                    >
+                      <div>
+                        <p className="text-gray-400 text-[10px] font-black uppercase tracking-wider">সর্বমোট লগইনকৃত ইউজার</p>
+                        <h3 className="text-3xl font-black text-white mt-1 font-mono">{allUsersList.length} জন</h3>
+                      </div>
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${
+                        userStatusFilter === 'ALL' ? 'bg-blue-500 text-black shadow-md' : 'bg-blue-500/10 text-blue-500'
+                      }`}>
+                        <User className="w-5 h-5" />
+                      </div>
+                    </button>
+                    
+                    <button
+                      onClick={() => setUserStatusFilter('VERIFIED')}
+                      className={`border p-4 rounded-xl flex items-center justify-between text-left transition-all outline-none focus:ring-1 focus:ring-emerald-500/50 ${
+                        userStatusFilter === 'VERIFIED'
+                          ? 'bg-emerald-500/10 border-emerald-500 shadow-lg shadow-emerald-500/10'
+                          : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10'
+                      }`}
+                    >
+                      <div>
+                        <p className="text-emerald-400 text-[10px] font-black uppercase tracking-wider">মোট ভেরিফাইড ইউজার</p>
+                        <h3 className="text-3xl font-black text-emerald-500 mt-1 font-mono">
+                          {allUsersList.filter(u => u.subscriptionStatus === 'ACTIVE' && !(u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date())).length} জন
+                        </h3>
+                      </div>
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${
+                        userStatusFilter === 'VERIFIED' ? 'bg-emerald-500 text-black shadow-md' : 'bg-emerald-500/10 text-emerald-500'
+                      }`}>
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => setUserStatusFilter('UNVERIFIED')}
+                      className={`border p-4 rounded-xl flex items-center justify-between text-left transition-all outline-none focus:ring-1 focus:ring-rose-500/50 ${
+                        userStatusFilter === 'UNVERIFIED'
+                          ? 'bg-rose-500/10 border-rose-500 shadow-lg shadow-rose-500/10'
+                          : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10'
+                      }`}
+                    >
+                      <div>
+                        <p className="text-rose-400 text-[10px] font-black uppercase tracking-wider">মোট আনভেরিফাইড ইউজার</p>
+                        <h3 className="text-3xl font-black text-rose-500 mt-1 font-mono">
+                          {allUsersList.filter(u => u.subscriptionStatus !== 'ACTIVE').length} জন
+                        </h3>
+                      </div>
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${
+                        userStatusFilter === 'UNVERIFIED' ? 'bg-rose-500 text-white shadow-md' : 'bg-rose-500/10 text-rose-500'
+                      }`}>
+                        <AlertCircle className="w-5 h-5" />
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Search and control row */}
+                  <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-[#101217] border border-white/5 p-4 rounded-xl">
+                    <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3 w-full xl:w-auto">
+                      <div className="relative w-full lg:w-72">
+                        <input 
+                          type="text" 
+                          placeholder="ইউজারের নাম, ইমেইল বা UID দিয়ে খুজুন..." 
+                          className="bg-[#14161d] border border-white/10 rounded-lg px-4 py-2 text-xs focus:outline-none focus:border-amber-500 w-full text-white"
+                          value={userSearchQuery || ""}
+                          onChange={(e) => setUserSearchQuery(e.target.value)}
+                        />
+                      </div>
+                      
+                      {/* Filter pills buttons group */}
+                      <div className="flex flex-wrap gap-1.5 items-center">
+                        <button
+                          onClick={() => setUserStatusFilter('ALL')}
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${
+                            userStatusFilter === 'ALL'
+                              ? 'bg-blue-500 text-black border-blue-500 font-bold'
+                              : 'bg-white/5 text-gray-400 border-white/5 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          সবাই ({allUsersList.length})
+                        </button>
+                        <button
+                          onClick={() => setUserStatusFilter('VERIFIED')}
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${
+                            userStatusFilter === 'VERIFIED'
+                              ? 'bg-emerald-500 text-black border-emerald-500 font-bold'
+                              : 'bg-white/5 text-gray-400 border-white/5 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          ভেরিফাইড ({allUsersList.filter(u => u.subscriptionStatus === 'ACTIVE' && !(u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date())).length})
+                        </button>
+                        <button
+                          onClick={() => setUserStatusFilter('PENDING')}
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${
+                            userStatusFilter === 'PENDING'
+                              ? 'bg-amber-500 text-black border-amber-500 font-bold'
+                              : 'bg-white/5 text-gray-400 border-white/5 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          পেন্ডিং ({allUsersList.filter(u => u.subscriptionStatus === 'PENDING').length})
+                        </button>
+                        <button
+                          onClick={() => setUserStatusFilter('EXPIRED')}
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${
+                            userStatusFilter === 'EXPIRED'
+                              ? 'bg-rose-500 text-white border-rose-500 font-bold'
+                              : 'bg-white/5 text-gray-400 border-white/5 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          মেয়াদোত্তীর্ণ ({allUsersList.filter(u => u.subscriptionStatus === 'ACTIVE' && u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date()).length})
+                        </button>
+                        <button
+                          onClick={() => setUserStatusFilter('UNVERIFIED')}
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border ${
+                            userStatusFilter === 'UNVERIFIED'
+                              ? 'bg-rose-500 text-white border-rose-500 font-bold'
+                              : 'bg-white/5 text-gray-400 border-white/5 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          ফ্রি/আনভেরিফাইড ({allUsersList.filter(u => u.subscriptionStatus !== 'ACTIVE' && u.subscriptionStatus !== 'PENDING').length})
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="text-[10px] text-gray-500 uppercase tracking-widest font-black shrink-0 xl:text-right">
+                      ফলফলাফল: {
+                        allUsersList.filter(u => {
+                          const queryStr = (userSearchQuery || "").toLowerCase();
+                          const nameMatch = (u.displayName || "").toLowerCase().includes(queryStr);
+                          const emailMatch = (u.email || "").toLowerCase().includes(queryStr);
+                          const uidMatch = (u.uid || "").toLowerCase().includes(queryStr);
+                          const matchesSearch = nameMatch || emailMatch || uidMatch;
+                          if (!matchesSearch) return false;
+
+                          const isExpired = u.subscriptionStatus === 'ACTIVE' && u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date();
+                          const isVerified = u.subscriptionStatus === 'ACTIVE' && !isExpired;
+
+                          if (userStatusFilter === 'VERIFIED') return isVerified;
+                          if (userStatusFilter === 'UNVERIFIED') return u.subscriptionStatus !== 'ACTIVE' && u.subscriptionStatus !== 'PENDING';
+                          if (userStatusFilter === 'EXPIRED') return isExpired;
+                          if (userStatusFilter === 'PENDING') return u.subscriptionStatus === 'PENDING';
+                          return true;
+                        }).length
+                      } জন ইউজার পাওয়া গেছে
+                    </div>
+                  </div>
+
+                  {/* Table area */}
+                  <div className="flex-1 overflow-auto border border-gray-800 rounded-xl bg-[#0e0f12] custom-scrollbar">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-gray-800 bg-[#12141a] text-[10px] font-black uppercase tracking-widest text-gray-400">
+                          <th className="px-6 py-4">ইউজার প্রোফাইল</th>
+                          <th className="px-6 py-4">রেজিস্ট্রেশন</th>
+                          <th className="px-6 py-4">সর্বশেষ লগইন</th>
+                          <th className="px-6 py-4">ভেরিফিকেশন স্ট্যাটাস ও সময়</th>
+                          <th className="px-6 py-4 text-right">ম্যানেজ অ্যাকশন</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-800">
+                        {(() => {
+                          const queryStr = (userSearchQuery || "").toLowerCase();
+                          const filtered = allUsersList.filter(u => {
+                            const nameMatch = (u.displayName || "").toLowerCase().includes(queryStr);
+                            const emailMatch = (u.email || "").toLowerCase().includes(queryStr);
+                            const uidMatch = (u.uid || "").toLowerCase().includes(queryStr);
+                            const matchesSearch = nameMatch || emailMatch || uidMatch;
+                            if (!matchesSearch) return false;
+
+                            const isExpired = u.subscriptionStatus === 'ACTIVE' && u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date();
+                            const isVerified = u.subscriptionStatus === 'ACTIVE' && !isExpired;
+
+                            if (userStatusFilter === 'VERIFIED') {
+                              return isVerified;
+                            }
+                            if (userStatusFilter === 'UNVERIFIED') {
+                              return u.subscriptionStatus !== 'ACTIVE' && u.subscriptionStatus !== 'PENDING';
+                            }
+                            if (userStatusFilter === 'EXPIRED') {
+                              return isExpired;
+                            }
+                            if (userStatusFilter === 'PENDING') {
+                              return u.subscriptionStatus === 'PENDING';
+                            }
+                            return true;
+                          });
+
+                          if (filtered.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={5} className="text-center py-12 text-gray-600 text-xs italic">
+                                  কোনো ইউজার পাওয়া যায়নি
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return filtered.map((u) => {
+                            const isExpired = u.subscriptionStatus === 'ACTIVE' && u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date();
+                            const isVerified = u.subscriptionStatus === 'ACTIVE' && !isExpired;
+                            
+                            // Calculate verified date and relative days
+                            let verifiedDateStr = "";
+                            let relativeDaysStr = "";
+                            let vDate: Date | null = null;
+                            
+                            if (isVerified) {
+                              vDate = u.verifiedAt ? u.verifiedAt.toDate() : null;
+                              if (!vDate && u.subscriptionExpiresAt) {
+                                const exp = u.subscriptionExpiresAt.toDate();
+                                vDate = new Date(exp.getTime());
+                                vDate.setDate(vDate.getDate() - 30);
+                              }
+                              
+                              if (vDate) {
+                                const now = new Date();
+                                const diffMs = now.getTime() - vDate.getTime();
+                                const diffDays = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+                                
+                                const options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' };
+                                verifiedDateStr = vDate.toLocaleDateString('bn-BD', options);
+                                relativeDaysStr = `${diffDays} দিন যাবত ভেরিফাইড`;
+                              } else {
+                                verifiedDateStr = "আজ থেকে";
+                                relativeDaysStr = "১ দিন যাবত ভেরিফাইড";
+                              }
+                            }
+
+                            // Calculate joined date and last login
+                            const joinedDateStr = u.createdAt && u.createdAt.toDate 
+                              ? u.createdAt.toDate().toLocaleDateString('bn-BD', { day: 'numeric', month: 'short', year: 'numeric' }) 
+                              : 'N/A';
+                              
+                            const lastLoginStr = u.lastLogin && u.lastLogin.toDate
+                              ? u.lastLogin.toDate().toLocaleDateString('bn-BD', { day: 'numeric', month: 'short', year: 'numeric' }) + " " + u.lastLogin.toDate().toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' })
+                              : 'N/A';
+
+                            return (
+                              <tr key={u.uid} className="hover:bg-white/5 transition-colors group">
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center gap-3">
+                                    {u.photoURL ? (
+                                      <img referrerPolicy="no-referrer" src={u.photoURL} alt="Profile" className="w-8 h-8 rounded-full border border-gray-750 shrink-0" />
+                                    ) : (
+                                      <div className="w-8 h-8 rounded-full bg-white/5 border border-gray-800 flex items-center justify-center text-gray-500 shrink-0">
+                                        <User className="w-4 h-4" />
+                                      </div>
+                                    )}
+                                    <div className="flex flex-col">
+                                      <span className="text-sm font-bold text-gray-200">{u.displayName || 'Unnamed User'}</span>
+                                      <span className="text-[10px] text-gray-500 font-mono font-bold">{u.email}</span>
+                                      <span className="text-[9px] text-gray-600 font-mono">UID: {u.uid}</span>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 text-xs text-gray-400 font-mono font-bold">
+                                  {joinedDateStr}
+                                </td>
+                                <td className="px-6 py-4 text-xs text-gray-400 font-mono font-bold">
+                                  {lastLoginStr}
+                                </td>
+                                <td className="px-6 py-4">
+                                  {isVerified ? (
+                                    <div className="space-y-1">
+                                      <span className="inline-flex items-center gap-1 text-[9px] font-black bg-emerald-500/20 text-emerald-500 border border-emerald-500/40 px-2 py-0.5 rounded uppercase tracking-wider">
+                                        🟢 Verified
+                                      </span>
+                                      <div className="text-[11px] text-emerald-400 font-bold">
+                                        {relativeDaysStr}
+                                      </div>
+                                      <div className="text-[10px] text-gray-500 italic">
+                                        (ভেরিফিকেশন শুরু: {verifiedDateStr})
+                                      </div>
+                                    </div>
+                                  ) : isExpired ? (
+                                    <div className="space-y-1">
+                                      <button
+                                        onClick={() => handleToggleUserVerification(u.uid, u.subscriptionStatus, true)}
+                                        className="inline-flex items-center gap-1 text-[9px] font-black bg-rose-500/20 text-rose-500 border border-rose-500/40 px-2 py-0.5 rounded uppercase tracking-wider cursor-pointer hover:bg-rose-500 hover:text-white transition-all active:scale-95"
+                                        title="আবার ভেরিফাই করতে ক্লিক করুন"
+                                      >
+                                        🔴 30D (Unverified)
+                                      </button>
+                                      <div className="text-[11px] text-rose-400 font-bold">
+                                        ৩০ দিন সম্পূর্ণ হয়েছে (মেয়াদোত্তীর্ণ)
+                                      </div>
+                                      <button
+                                        onClick={() => handleToggleUserVerification(u.uid, u.subscriptionStatus, true)}
+                                        className="text-[9px] text-amber-500 hover:underline font-bold uppercase tracking-wider block text-left"
+                                      >
+                                        আবার ভেরিফাই করুন ⚡
+                                      </button>
+                                    </div>
+                                  ) : u.subscriptionStatus === 'PENDING' ? (
+                                    <div>
+                                      <span className="inline-flex items-center gap-1 text-[9px] font-black bg-amber-500/20 text-amber-500 border border-amber-500/40 px-2 py-0.5 rounded uppercase tracking-wider">
+                                        🟡 Pending Verification
+                                      </span>
+                                      <div className="text-[11px] text-gray-400 font-bold mt-1">পেমেন্ট রিকোয়েস্ট পেন্ডিং</div>
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-1">
+                                      <button
+                                        onClick={() => handleToggleUserVerification(u.uid, u.subscriptionStatus, false)}
+                                        className="inline-flex items-center gap-1 text-[9px] font-black bg-rose-500/20 text-rose-500 border border-rose-500/40 px-2 py-0.5 rounded uppercase tracking-wider cursor-pointer hover:bg-rose-500 hover:text-white transition-all active:scale-95"
+                                        title="ভেরিফাই করতে ক্লিক করুন"
+                                      >
+                                        🔴 Unverified (Free)
+                                      </button>
+                                      <div className="text-[10px] text-gray-500">কোনো সক্রিয় সাবস্ক্রিপশন নেই</div>
+                                      <button
+                                        onClick={() => handleToggleUserVerification(u.uid, u.subscriptionStatus, false)}
+                                        className="text-[9px] text-amber-500 hover:underline font-bold uppercase tracking-wider block text-left"
+                                      >
+                                        ভেরিফাই করুন ✨
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                  <button
+                                    onClick={() => handleToggleUserVerification(u.uid, u.subscriptionStatus, isExpired)}
+                                    className={`px-3 py-1.5 rounded text-[10px] font-black tracking-wider uppercase transition-all border ${
+                                      isVerified 
+                                        ? 'bg-rose-500/10 hover:bg-rose-500 hover:text-white text-rose-500 border-rose-500/20' 
+                                        : 'bg-emerald-500/10 hover:bg-emerald-500 hover:text-black text-emerald-500 border-emerald-500/20'
+                                    }`}
+                                  >
+                                    {isVerified ? "আনভেরিফাইড" : "ভেরিফাই করুন"}
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               ) : (
                 <div className="flex h-full min-h-0">
                   {/* User List Sidebar */}
@@ -2142,6 +2599,29 @@ export default function App() {
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #10b981; }
+
+        @keyframes pulse-glowing {
+          0% {
+            box-shadow: 0 0 5px rgba(16, 185, 129, 0.4), 0 0 0px rgba(16, 185, 129, 0.2);
+          }
+          50% {
+            box-shadow: 0 0 25px rgba(16, 185, 129, 0.8), 0 0 10px rgba(16, 185, 129, 0.4);
+          }
+          100% {
+            box-shadow: 0 0 5px rgba(16, 185, 129, 0.4), 0 0 0px rgba(16, 185, 129, 0.2);
+          }
+        }
+        @keyframes pulse-ring {
+          0% { transform: scale(0.95); opacity: 0.8; }
+          50% { transform: scale(1.1); opacity: 0.3; }
+          100% { transform: scale(1.25); opacity: 0; }
+        }
+        .animate-pulse-glowing {
+          animation: pulse-glowing 2s infinite ease-in-out;
+        }
+        .animate-pulse-ring {
+          animation: pulse-ring 2s infinite cubic-bezier(0.4, 0, 0.6, 1);
+        }
       `}} />
 
       {/* Floating Chat Support for Users */}
@@ -2213,27 +2693,35 @@ export default function App() {
             )}
           </AnimatePresence>
 
-          <button 
-            onClick={() => setShowChat(!showChat)}
-            className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 ${
-              showChat 
-              ? 'bg-rose-500 rotate-90' 
-              : 'bg-emerald-500 hover:scale-110 hover:shadow-emerald-500/20'
-            }`}
-          >
-            {showChat ? (
-              <X className="w-6 h-6 text-white" />
-            ) : (
-              <div className="relative">
-                <MessageCircle className="w-6 h-6 text-black" />
-                {userList.find(u => u.userId === user.uid)?.unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-[8px] font-black text-white rounded-full flex items-center justify-center border-2 border-emerald-500">
-                    {messages.filter(m => m.sender === 'ADMIN' && !m.read).length}
-                  </span>
-                )}
-              </div>
+          <div className="relative group">
+            {!showChat && (
+              <>
+                <span className="absolute inset-0 rounded-full bg-emerald-500/30 animate-pulse-ring pointer-events-none scale-105" />
+                <span className="absolute -inset-1 rounded-full border border-emerald-500/30 animate-pulse-ring pointer-events-none" />
+              </>
             )}
-          </button>
+            <button 
+              onClick={() => setShowChat(!showChat)}
+              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 relative z-10 ${
+                showChat 
+                ? 'bg-rose-500 rotate-90 scale-95' 
+                : 'bg-emerald-500 hover:scale-110 hover:shadow-emerald-500/30 animate-pulse-glowing'
+              }`}
+            >
+              {showChat ? (
+                <X className="w-6 h-6 text-white" />
+              ) : (
+                <div className="relative">
+                  <MessageCircle className="w-6 h-6 text-black animate-bounce [animation-duration:3s]" />
+                  {userList.find(u => u.userId === user.uid)?.unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-[8px] font-black text-white rounded-full flex items-center justify-center border-2 border-emerald-500 animate-pulse">
+                      {messages.filter(m => m.sender === 'ADMIN' && !m.read).length}
+                    </span>
+                  )}
+                </div>
+              )}
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -13,7 +13,8 @@
         "lastLogin": { "type": "string", "format": "date-time" },
         "freeUsageCount": { "type": "integer", "minimum": 0, "maximum": 3 },
         "subscriptionStatus": { "type": "string", "enum": ["NONE", "PENDING", "ACTIVE"] },
-        "subscriptionExpiresAt": { "type": "string", "format": "date-time" }
+        "subscriptionExpiresAt": { "type": "string", "format": "date-time" },
+        "verifiedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email"]
     },
