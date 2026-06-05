@@ -78,25 +78,18 @@ service cloud.firestore {
       allow write: if false; // Only manageable via console
     }
 
+    // --- Global Settings ---
+    match /settings/{settingsId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // --- Users Collection ---
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
       allow list: if isAdmin();
-      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming());
-      allow update: if (isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && (
-        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'lastLogin', 'freeUsageCount', 'subscriptionStatus', 'subscriptionExpiresAt', 'verifiedAt'])
-      )) || isAdmin();
-
-      function isValidUser(data) {
-        return data.uid == userId
-          && (data.get('displayName', null) == null || (data.displayName is string && data.displayName.size() <= 100))
-          && (data.get('photoURL', null) == null || (data.photoURL is string && data.photoURL.size() <= 500))
-          && (data.get('freeUsageCount', 0) is int && data.get('freeUsageCount', 0) >= 0 && data.get('freeUsageCount', 0) <= 3)
-          && (data.get('subscriptionStatus', 'NONE') in ['NONE', 'PENDING', 'ACTIVE'])
-          && (data.get('subscriptionExpiresAt', null) == null || data.subscriptionExpiresAt is timestamp)
-          && (data.get('verifiedAt', null) == null || data.verifiedAt is timestamp)
-          && data.lastLogin is timestamp;
-      }
+      allow create: if isOwner(userId) && isValidId(userId);
+      allow update: if isOwner(userId) || isAdmin();
 
       // --- Analyses Subcollection ---
       match /analyses/{analysisId} {

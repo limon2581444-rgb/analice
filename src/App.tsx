@@ -85,6 +85,27 @@ export default function App() {
   const [soundEnabled, setSoundEnabledState] = useState<boolean>(() => isSoundEnabled());
   const analysisBoxRef = useRef<HTMLDivElement>(null);
 
+  // Binance TRC20 and dynamic settings state
+  const [paymentMethod, setPaymentMethod] = useState<'bkash' | 'trc20'>('bkash');
+  const [trc20Address, setTrc20Address] = useState("");
+  const [adminTrc20Address, setAdminTrc20Address] = useState("");
+  const [copiedTrc, setCopiedTrc] = useState(false);
+
+  // Load global payment settings on mount
+  useEffect(() => {
+    const docRef = doc(db, 'settings', 'payment');
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setTrc20Address(data.trc20Address || "");
+        setAdminTrc20Address(data.trc20Address || "");
+      }
+    }, (err) => {
+      console.error("Error loaded settings:", err);
+    });
+    return () => unsubscribe();
+  }, []);
+
   const toggleSound = () => {
     const nextVal = !soundEnabled;
     setSoundEnabledState(nextVal);
@@ -110,9 +131,9 @@ export default function App() {
           if (!userSnap.exists()) {
             await setDoc(userRef, {
               uid: currentUser.uid,
-              email: currentUser.email,
-              displayName: currentUser.displayName,
-              photoURL: currentUser.photoURL,
+              email: currentUser.email || "",
+              displayName: currentUser.displayName || "",
+              photoURL: currentUser.photoURL || "",
               lastLogin: serverTimestamp(),
               createdAt: serverTimestamp(),
               freeUsageCount: 0,
@@ -484,14 +505,22 @@ export default function App() {
       setAuthPassword('');
       setAuthError(null);
     } catch (err: any) {
-      console.error("Auth Error Detail:", err);
-      let errorMsg = "Authentication failed. Please try again.";
-      
       const errorCode = err.code || (err.message?.includes('auth/') ? err.message : '');
+      const isExpectedAuthErr = errorCode.includes('invalid-credential') || 
+                                errorCode.includes('user-not-found') || 
+                                errorCode.includes('wrong-password') || 
+                                errorCode.includes('email-already-in-use');
+      
+      if (isExpectedAuthErr) {
+        console.warn("Auth Info (expected input result):", err);
+      } else {
+        console.error("Auth Error Detail:", err);
+      }
+      let errorMsg = "Authentication failed. Please try again.";
       
       if (errorCode.includes('invalid-credential') || errorCode.includes('user-not-found') || errorCode.includes('wrong-password')) {
         errorMsg = authMode === 'login' 
-          ? "ভুল ইমেইল বা পাসওয়ার্ড! আপনার কি অ্যাকাউন্ট নেই? 'Create one' এ ক্লিক করে রেজিস্ট্রেশন করুন।" 
+          ? "ভুল ইমেইল বা পাসওয়ার্ড! আপনার কি অ্যাকাউন্ট নেই? 'Create a new account' এ ক্লিক করে রেজিস্ট্রেশন করুন।" 
           : "ভুল তথ্য দেওয়া হয়েছে। আবার চেষ্টা করুন।";
         if (authMode === 'login') {
           setShowRegisterShortcut(true);
@@ -530,21 +559,13 @@ export default function App() {
                             userData.subscriptionExpiresAt.toDate() > new Date();
         
         if (!isSubscribed) {
-          // Auto-activate user's subscription on "Start AI Analysis" button click
-          setGlobalLoading(true);
-          try {
-            await activateSubscription(user.uid);
-            // Allow state to propagate brief moment
-            await new Promise((resolve) => setTimeout(resolve, 800));
-          } catch (activateErr: any) {
-            console.error("Auto activation error during startAnalysis:", activateErr);
-            setError('ভেরিফিকেশন অ্যাক্টিভ করতে সমস্যা হয়েছে। দয়া করে আবার চেষ্টা করুন।');
-            setCurrentView('payment');
-            setGlobalLoading(false);
-            return;
-          } finally {
-            setGlobalLoading(false);
+          if (userData?.subscriptionStatus === 'PENDING') {
+            setError('আপনার পেমেন্ট রিকোয়েস্টটি পেন্ডিং রয়েছে! অনুগ্রহ করে এডমিন ভেরিফিকেশন করার জন্য কিছু সময় অপেক্ষা করুন।');
+          } else {
+            setError('আপনার অ্যাকাউন্টটি এখনও ভেরিফাইড নয়! দয়া করে পেমেন্ট করুন এবং পেমেন্ট অ্যাক্সেপ্ট হওয়া পর্যন্ত অপেক্ষা করুন।');
           }
+          setCurrentView('payment');
+          return;
         }
       } else {
         // If userData is not yet loaded, we assume not subscribed for safety
@@ -669,11 +690,21 @@ export default function App() {
       alert("সবগুলো ঘর সঠিকভাবে পূরণ করুন!");
       return;
     }
+    const cleanNum = senderNumber.trim();
+    const cleanTrx = trxId.trim();
+    if (cleanNum.length < 10 || cleanNum.length > 15) {
+      alert("বিকাশ নম্বর বা বাইন্যান্স বিবরণ ১০ থেকে ১৫ অক্ষরের মধ্যে হতে হবে!");
+      return;
+    }
+    if (cleanTrx.length < 5 || cleanTrx.length > 50) {
+      alert("Transaction ID ৫ থেকে ৫০ অক্ষরের মধ্যে হতে হবে!");
+      return;
+    }
     setAnalyzing(true);
     setGlobalLoading(true);
     setShowSuccess(false);
     try {
-      await submitPaymentRequest(user.uid, senderNumber, trxId);
+      await submitPaymentRequest(user.uid, cleanNum, cleanTrx);
       setSenderNumber("");
       setTrxId("");
       
@@ -734,6 +765,46 @@ export default function App() {
     } catch (err: any) {
       console.error(err);
       alert("ইউজার সাবস্ক্রিপশন স্ট্যাটাস পরিবর্তন করতে সমস্যা হয়েছে: " + (err.message || ""));
+    } finally {
+      setGlobalLoading(false);
+    }
+  };
+
+  const handleBulkResetUsers = async () => {
+    if (!confirm("আপনি কি নিশ্চিত যে আপনি অ্যাডমিন বাদে সকল সাধারণ ইউজারকে আনভেরিফাইড করতে চান? এই অ্যাকশনটি রিভার্স করা যাবে না!")) return;
+    
+    // Filter non-admin users who are verified or pending (not already Free/NONE)
+    const targets = allUsersList.filter(u => {
+      const email = u.email || "";
+      const isSystemAdmin = email === "limon2581444@gmail.com" || email === "limon4444@gmail.com";
+      return !isSystemAdmin && (u.subscriptionStatus === 'ACTIVE' || u.subscriptionStatus === 'PENDING');
+    });
+
+    if (targets.length === 0) {
+      alert("কোনো অ্যাক্টিভ বা পেন্ডিং সাধারণ ইউজার পাওয়া যায়নি!");
+      return;
+    }
+
+    if (!confirm(`আমরা মোট ${targets.length} জন সাধারণ ইউজারকে আনভেরিফাইড করব। শুরু করতে ওকে প্রেস করুন।`)) return;
+
+    setGlobalLoading(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    try {
+      for (const t of targets) {
+        try {
+          await deactivateSubscription(t.uid);
+          successCount++;
+        } catch (e) {
+          console.error(`Failed to unverify user ${t.uid}:`, e);
+          failCount++;
+        }
+      }
+      alert(`অপারেশন সম্পূর্ণ হয়েছে! ${successCount} জন ইউজারকে আনভেরিফাইড করা হয়েছে।${failCount > 0 ? ` ব্যর্থ হয়েছে: ${failCount} জন।` : ''}`);
+    } catch (err: any) {
+      console.error(err);
+      alert("বাল্ক রিসেট অপারেশনে সমস্যা হয়েছে: " + (err.message || ""));
     } finally {
       setGlobalLoading(false);
     }
@@ -803,52 +874,17 @@ export default function App() {
                 <div className="flex flex-col items-end">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-white uppercase tracking-wider">{user.displayName || 'Trident User'}</span>
-                    <div className="flex items-center gap-1 bg-white/5 p-0.5 rounded-lg border border-white/10">
-                      <button
-                        onClick={async () => {
-                          if (userData?.subscriptionStatus !== 'ACTIVE') {
-                            setGlobalLoading(true);
-                            try {
-                              await activateSubscription(user.uid);
-                            } catch (e) {
-                              console.error(e);
-                            } finally {
-                              setGlobalLoading(false);
-                            }
-                          }
-                        }}
-                        className={`text-[8px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer active:scale-95 ${
-                          userData?.subscriptionStatus === 'ACTIVE'
-                            ? 'bg-emerald-500 text-black shadow-md'
-                            : 'bg-transparent text-gray-400 hover:text-gray-200'
-                        }`}
-                        title="অ্যাকাউন্ট ভেরিফাই করতে ক্লিক করুন"
-                      >
+                    {userData?.subscriptionStatus === 'ACTIVE' ? (
+                      <div className="flex items-center gap-1 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/20 text-[8px] font-bold text-emerald-400 uppercase tracking-wider">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                         Verified
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (userData?.subscriptionStatus === 'ACTIVE') {
-                            setGlobalLoading(true);
-                            try {
-                              await deactivateSubscription(user.uid);
-                            } catch (e) {
-                              console.error(e);
-                            } finally {
-                              setGlobalLoading(false);
-                            }
-                          }
-                        }}
-                        className={`text-[8px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer active:scale-95 ${
-                          userData?.subscriptionStatus !== 'ACTIVE'
-                            ? 'bg-rose-500 text-white shadow-md'
-                            : 'bg-transparent text-gray-400 hover:text-gray-200'
-                        }`}
-                        title="ভেরিফিকেশন বন্ধ করতে ক্লিক করুন"
-                      >
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 bg-rose-500/10 px-2.5 py-0.5 rounded-md border border-rose-500/20 text-[8px] font-bold text-rose-400 uppercase tracking-wider animate-pulse-glowing">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                         Unverified
-                      </button>
-                    </div>
+                      </div>
+                    )}
                   </div>
                   <span className="text-[9px] text-gray-500 truncate max-w-[120px]">{user.email}</span>
                 </div>
@@ -1049,7 +1085,7 @@ export default function App() {
                     }}
                     className="text-[10px] text-gray-500 hover:text-emerald-500 font-bold uppercase tracking-widest transition-colors"
                   >
-                    {authMode === 'login' ? "Don't have an account? Create one" : "Already have an account? Access here"}
+                    {authMode === 'login' ? "Don't have an account? Create a new account" : "Already have an account? Access here"}
                   </button>
                 </div>
               </div>
@@ -1104,10 +1140,10 @@ export default function App() {
               <button
                 onClick={startAnalysis}
                 disabled={!image || analyzing}
-                className={`w-full py-3 rounded-lg flex items-center justify-center gap-2 font-bold text-xs uppercase tracking-widest transition-all ${
+                className={`w-full py-3 rounded-lg flex items-center justify-center gap-2 font-bold text-xs uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95 ${
                   !image || analyzing 
                     ? 'bg-gray-800 text-gray-600 cursor-not-allowed' 
-                    : 'bg-emerald-500 text-black hover:bg-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+                    : 'bg-emerald-500 text-black hover:bg-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)] animate-pulse-glowing'
                 }`}
               >
                 {analyzing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Terminal className="w-4 h-4" />}
@@ -1210,29 +1246,19 @@ export default function App() {
                     </div>
                     <div className="flex items-center gap-1.5 sm:gap-2">
                       {result && !analyzing && (
-                        <>
-                          <button 
-                            onClick={copyToClipboard}
-                            className="p-1.5 sm:p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-gray-400 hover:text-emerald-500 transition-colors flex items-center gap-1.5 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest"
-                            title="Copy Analysis as Text"
-                          >
-                            {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                            {copied ? 'Copied' : 'Copy'}
-                          </button>
-                          <button 
-                            onClick={exportAsImage}
-                            className="p-1.5 sm:p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-gray-400 hover:text-emerald-500 transition-colors flex items-center gap-1.5 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest"
-                            title="Download Analysis as Image"
-                          >
-                            <Download className="w-3 h-3" />
-                            Export
-                          </button>
-                        </>
+                        <button 
+                          onClick={reset}
+                          className="px-3 py-1.5 sm:px-4 sm:py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 rounded transition-all duration-300 flex items-center gap-1.5 text-[9px] sm:text-[10px] font-bold uppercase tracking-widest hover:scale-105 active:scale-95"
+                          title="ফিরে যান"
+                        >
+                          <ArrowLeft className="w-3.5 h-3.5" />
+                          Back
+                        </button>
                       )}
                       {!analyzing && !result && (
                         <button 
                           onClick={startAnalysis}
-                          className="px-4 py-1.5 sm:px-6 sm:py-2 bg-emerald-500 text-black font-black text-[10px] sm:text-xs rounded hover:bg-emerald-400 transition-colors uppercase tracking-widest"
+                          className="px-4 py-1.5 sm:px-6 sm:py-2 bg-emerald-500 text-black font-black text-[10px] sm:text-xs rounded hover:bg-emerald-400 transition-all duration-300 uppercase tracking-widest hover:scale-105 active:scale-95 animate-pulse-glowing"
                         >
                           Start AI Analysis
                         </button>
@@ -1685,7 +1711,8 @@ export default function App() {
                           <p className="text-[10px] text-emerald-500 uppercase tracking-widest font-black">৫০% অফার প্রাইস চলতেছে</p>
                         </div>
                         <div className="text-right">
-                          <span className="text-3xl font-black text-emerald-500">৳1000</span>
+                          <span className="text-3xl font-black text-emerald-500">20$</span>
+                          <span className="text-[10px] text-gray-400 block font-bold tracking-wider mt-0.5">(2450 tk)</span>
                           <span className="text-xs text-gray-500 block">/ 26 Days</span>
                         </div>
                       </div>
@@ -1702,7 +1729,8 @@ export default function App() {
                         </div>
                       ) : (
                         <div className="space-y-6">
-                          <div className="bg-[#e2125d]/5 border border-[#e2125d]/20 rounded-xl p-4 flex items-center justify-between">
+                          {/* bKash Payment option */}
+                          <div className={`bg-[#e2125d]/5 border border-[#e2125d]/20 rounded-xl p-4 flex items-center justify-between transition-all ${paymentMethod === 'bkash' ? 'ring-1 ring-[#e2125d]/40 bg-[#e2125d]/8' : ''}`}>
                              <div className="flex items-center gap-3">
                                <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center p-1.5 shadow-sm">
                                  <svg className="w-7 h-7 text-[#e2125d]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1724,25 +1752,88 @@ export default function App() {
                              </div>
                           </div>
 
+                          {/* Binance TRC20 Gateway Options Row */}
+                          <div className="mt-3 flex items-center justify-between p-3.5 bg-gradient-to-r from-blue-500/5 to-slate-900 border border-gray-800/80 rounded-xl">
+                            <div className="flex items-center gap-3">
+                              <div className="w-7 h-7 bg-[#f3ba2f]/10 rounded-md flex items-center justify-center font-bold text-[#f3ba2f] text-[10px] uppercase tracking-tighter">
+                                BIN
+                              </div>
+                              <div>
+                                <span className="text-[11px] font-bold text-white text-left block">Binance Option</span>
+                                <span className="text-[9px] text-gray-500 font-medium block">Pay with USDT / Crypto</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-black uppercase tracking-wider text-gray-400">Binance</span>
+                              <button
+                                type="button"
+                                onClick={() => setPaymentMethod(paymentMethod === 'trc20' ? 'bkash' : 'trc20')}
+                                className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                                  paymentMethod === 'trc20'
+                                    ? 'bg-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.4)] border border-blue-400'
+                                    : 'bg-white/5 border border-white/10 text-gray-400 hover:text-white'
+                                }`}
+                              >
+                                TRC20
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Pic 2: Empty box filled from admin panel, show & copy system */}
+                          {paymentMethod === 'trc20' && (
+                            <div className="bg-[#131720]/90 border border-gray-800 rounded-2xl p-5 space-y-3.5 shadow-xl relative overflow-hidden animate-fade-in text-left">
+                              <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500" />
+                              <div className="flex justify-between items-center pl-1">
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                                  WALLET ADDRESS (TRC20)
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-blue-500/10 text-[9px] font-black text-blue-400 uppercase tracking-widest">USDT Network</span>
+                              </div>
+                              
+                              <div className="flex items-center justify-between bg-[#0b0d12] border border-gray-800 rounded-xl p-3.5 group/addr hover:bg-[#0c0f16] hover:border-blue-500/30 transition-all">
+                                <span className="text-xs sm:text-sm font-mono font-bold text-blue-400 break-all select-all pr-2">
+                                  {trc20Address || 'TPAXoRZNjyn9XqwtmkV9xaTAzyeqEW2Hxy'}
+                                </span>
+                                <button 
+                                  type="button"
+                                  onClick={() => { 
+                                    const addr = trc20Address || 'TPAXoRZNjyn9XqwtmkV9xaTAzyeqEW2Hxy';
+                                    navigator.clipboard.writeText(addr); 
+                                    setCopiedTrc(true); 
+                                    setTimeout(() => setCopiedTrc(false), 2000); 
+                                  }} 
+                                  className="text-[9px] sm:text-[10px] text-gray-400 hover:text-blue-300 font-bold uppercase tracking-wider transition-all shrink-0 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10 active:scale-95"
+                                >
+                                  {copiedTrc ? 'Copied' : 'Copy'}
+                                </button>
+                              </div>
+                              <p className="text-[10px] text-gray-500 tracking-wide font-normal italic pl-1">
+                                Send only TRC20 to this address. Other assets will be lost.
+                              </p>
+                            </div>
+                          )}
+
                           <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                              <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Your Number</label>
+                            <div className="space-y-1.5 text-left font-sans">
+                              <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">
+                                {paymentMethod === 'bkash' ? 'Your Number' : 'Your Wallet / Phone / Details'}
+                              </label>
                               <input 
                                 type="text" 
                                 value={senderNumber}
                                 onChange={(e) => setSenderNumber(e.target.value)}
-                                placeholder="017********"
-                                className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+                                placeholder={paymentMethod === 'bkash' ? "017********" : "USDT / Address details"}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors text-white"
                               />
                             </div>
-                            <div className="space-y-1.5">
+                            <div className="space-y-1.5 text-left font-sans">
                               <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Transaction ID</label>
                               <input 
                                 type="text" 
                                 value={trxId}
                                 onChange={(e) => setTrxId(e.target.value)}
                                 placeholder="TrxID"
-                                className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors font-mono"
+                                className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors font-mono text-white"
                               />
                             </div>
                           </div>
@@ -1756,7 +1847,7 @@ export default function App() {
                                 : 'bg-emerald-500 text-black hover:scale-[1.02] active:scale-98 animate-pulse-glowing'
                             }`}
                           >
-                            {analyzing ? 'Processing...' : (userData?.subscriptionStatus === 'PENDING' ? 'Awaiting Admin Approval' : 'Analyze Now (Pay ৳1000)')}
+                            {analyzing ? 'Processing...' : (userData?.subscriptionStatus === 'PENDING' ? 'Awaiting Admin Approval' : 'Analyze Now (Pay 20$ / 2450 tk)')}
                           </button>
                         </div>
                       )}
@@ -1963,6 +2054,44 @@ export default function App() {
                 </div>
               ) : adminTab === 'payments' ? (
                 <div className="flex flex-col h-full">
+                  {/* TRC20 Wallet Setting */}
+                  <div className="bg-[#141822] border-b border-gray-800 p-4 px-6 flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
+                    <div className="flex items-center gap-3">
+                      <CreditCard className="w-5 h-5 text-blue-500 shrink-0" />
+                      <div>
+                        <h4 className="text-xs font-bold text-white uppercase tracking-widest">Binance TRC20 Wallet Address</h4>
+                        <p className="text-[10px] text-gray-500 font-medium">This address is dynamically displayed on the user's payment screen.</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 max-w-sm sm:max-w-md w-full">
+                      <input 
+                        type="text"
+                        value={adminTrc20Address}
+                        onChange={(e) => setAdminTrc20Address(e.target.value)}
+                        placeholder="Enter TRC20 Address (e.g. TPAXo...)"
+                        className="flex-1 bg-black/40 border border-gray-800 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-blue-500 text-white font-mono placeholder-gray-700"
+                      />
+                      <button
+                        onClick={async () => {
+                          setGlobalLoading(true);
+                          try {
+                            const configRef = doc(db, 'settings', 'payment');
+                            await setDoc(configRef, { trc20Address: adminTrc20Address }, { merge: true });
+                            alert("TRC20 Wallet Address updated in database successfully!");
+                          } catch (err: any) {
+                            console.error("Error setting TRC20:", err);
+                            alert("Failed to save. Check firestore rules or connection.");
+                          } finally {
+                            setGlobalLoading(false);
+                          }
+                        }}
+                        className="px-4 py-1.5 bg-blue-500 text-white hover:bg-blue-400 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(59,130,246,0.3)] shrink-0 active:scale-95"
+                      >
+                        Save Address
+                      </button>
+                    </div>
+                  </div>
+
                   {/* Bulk Actions Toolbar */}
                   <AnimatePresence>
                     {selectedRequests.length > 0 && (
@@ -2183,6 +2312,23 @@ export default function App() {
                       }`}>
                         <AlertCircle className="w-5 h-5" />
                       </div>
+                    </button>
+                  </div>
+
+                  {/* Bulk Reset Banner */}
+                  <div className="bg-[#1e141a]/60 border border-rose-500/20 p-4 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 animate-pulse" />
+                      <div>
+                        <h4 className="text-xs font-bold text-white uppercase tracking-widest">বাল্ক ইউজার আনভেরিফিকেশন অ্যাকশন</h4>
+                        <p className="text-[10px] text-gray-400 font-medium mt-0.5">অ্যাডমিন বাদে সকল সাধারণ ভেরিফাইড এবং পেন্ডিং ইউজারকে এক ক্লিকে আনভেরিফাইড (ফ্রি) করুন।</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleBulkResetUsers}
+                      className="px-5 py-2 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(239,68,68,0.25)] shrink-0 active:scale-95"
+                    >
+                      সকল সাধারণ ইউজার আনভেরিফাইড করুন ⚠️
                     </button>
                   </div>
 
