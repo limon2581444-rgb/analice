@@ -114,12 +114,12 @@ export const activateSubscription = async (uid: string) => {
     const currentExpiry = data?.subscriptionExpiresAt?.toDate();
     
     if (currentExpiry && currentExpiry > new Date()) {
-      // Add 30 days to current expiry if still active
+      // Add 26 days to current expiry if still active
       expiresAt = new Date(currentExpiry);
-      expiresAt.setDate(expiresAt.getDate() + 30);
+      expiresAt.setDate(expiresAt.getDate() + 26);
     } else {
-      // Set to 30 days from now
-      expiresAt.setDate(expiresAt.getDate() + 30);
+      // Set to 26 days from now
+      expiresAt.setDate(expiresAt.getDate() + 26);
     }
 
     return await updateDoc(ref, {
@@ -242,3 +242,35 @@ export const getAllUsersSnap = (callback: (users: any[]) => void) => {
     handleFirestoreError(error, OperationType.LIST, path);
   }
 };
+
+export const saveTradeLog = async (userId: string, prediction: string, confidence: number, explanation: string, outcome: 'PROFIT' | 'LOSS') => {
+  const path = `users/${userId}/trades`;
+  try {
+    return await addDoc(collection(db, 'users', userId, 'trades'), {
+      userId,
+      prediction,
+      confidence,
+      explanation: explanation || "",
+      outcome,
+      timestamp: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+};
+
+export const getTradeLogsSnap = (userId: string, callback: (trades: any[]) => void) => {
+  const path = `users/${userId}/trades`;
+  try {
+    const q = query(collection(db, 'users', userId, 'trades'), orderBy('timestamp', 'desc'));
+    return onSnapshot(q, (snap) => {
+      const trades = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      callback(trades);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+  }
+};
+

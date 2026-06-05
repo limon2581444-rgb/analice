@@ -111,6 +111,22 @@ service cloud.firestore {
             && data.timestamp == request.time;
         }
       }
+
+      // --- Trades Subcollection ---
+      match /trades/{tradeId} {
+        allow list, get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+        allow create, update: if isSignedIn() && request.auth.uid == userId && isValidId(tradeId) && isValidTrade(incoming());
+        allow delete: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+        function isValidTrade(data) {
+          return data.userId == request.auth.uid
+            && data.prediction in ['UP', 'DOWN', 'NEUTRAL']
+            && data.confidence is number
+            && data.explanation is string
+            && data.outcome in ['PROFIT', 'LOSS', 'PENDING']
+            && data.timestamp == request.time;
+        }
+      }
     }
   }
 }

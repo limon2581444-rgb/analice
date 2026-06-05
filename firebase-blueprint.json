@@ -58,6 +58,20 @@
         "read": { "type": "boolean" }
       },
       "required": ["userId", "text", "sender", "timestamp"]
+    },
+    "trade": {
+      "title": "Trade Log",
+      "description": "Logged trade signals with user profitability feedback",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "prediction": { "type": "string", "enum": ["UP", "DOWN", "NEUTRAL"] },
+        "confidence": { "type": "number" },
+        "explanation": { "type": "string" },
+        "outcome": { "type": "string", "enum": ["PROFIT", "LOSS", "PENDING"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "prediction", "outcome", "timestamp"]
     }
   },
   "firestore": {
@@ -68,6 +82,10 @@
     "/users/{userId}/analyses/{analysisId}": {
       "schema": "analysis",
       "description": "History of analyses performed by the user"
+    },
+    "/users/{userId}/trades/{tradeId}": {
+      "schema": "trade",
+      "description": "History of logged trades marked as profit or loss"
     },
     "/payment_requests/{requestId}": {
       "schema": "paymentRequest",

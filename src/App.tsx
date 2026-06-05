@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX } from 'lucide-react';
 import { analyzeChartImage, AnalysisResult } from './services/geminiService';
 import { toPng } from 'html-to-image';
-import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap } from './lib/firebase';
+import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap, saveTradeLog, getTradeLogsSnap } from './lib/firebase';
 import { doc, setDoc, serverTimestamp, getDoc, onSnapshot, collection, query, where, orderBy, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { playAnalysisReadySound, playMessageAlertSound, isSoundEnabled, setSoundEnabled } from './utils/audioAlerts';
@@ -84,6 +84,11 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'VERIFIED' | 'REJECTED'>('ALL');
   const [soundEnabled, setSoundEnabledState] = useState<boolean>(() => isSoundEnabled());
   const analysisBoxRef = useRef<HTMLDivElement>(null);
+
+  // Profit / Loss tracking states
+  const [tradeLogged, setTradeLogged] = useState<boolean>(false);
+  const [tradeHistory, setTradeHistory] = useState<any[]>([]);
+  const [loggingHistory, setLoggingHistory] = useState<boolean>(false);
 
   // Binance TRC20 and dynamic settings state
   const [paymentMethod, setPaymentMethod] = useState<'bkash' | 'trc20'>('bkash');
@@ -170,9 +175,23 @@ export default function App() {
     const userPath = `users/${user.uid}`;
     const userRef = doc(db, userPath);
     
-    const unsubscribe = onSnapshot(userRef, (doc) => {
-      if (doc.exists()) {
-        setUserData(doc.data());
+    const unsubscribe = onSnapshot(userRef, async (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setUserData(data);
+        
+        // Auto-expiration flow: If status is ACTIVE but expiresAt is in the past (Day 27reached), update Firestore
+        if (data.subscriptionStatus === 'ACTIVE' && data.subscriptionExpiresAt) {
+          const expiresAt = data.subscriptionExpiresAt.toDate();
+          if (expiresAt <= new Date()) {
+            try {
+              await deactivateSubscription(user.uid);
+              console.log("Subscription automatically expired on Day 27. Switched status to Unverified.");
+            } catch (err) {
+              console.error("Error auto-deactivating expired subscription:", err);
+            }
+          }
+        }
       }
     }, (error) => {
       // Log error but don't necessarily crash the app
@@ -180,6 +199,22 @@ export default function App() {
     });
 
     return () => unsubscribe();
+  }, [user]);
+
+  // Dedicated listener for local logged trade signals (Profit / Loss history)
+  useEffect(() => {
+    if (!user) {
+      setTradeHistory([]);
+      return;
+    }
+    
+    const unsubscribe = getTradeLogsSnap(user.uid, (trades) => {
+      setTradeHistory(trades);
+    });
+    
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, [user]);
 
   // Messaging Listeners
@@ -443,6 +478,31 @@ export default function App() {
     }
   };
 
+  const handleLogTrade = async (outcome: 'PROFIT' | 'LOSS') => {
+    if (!user) {
+      alert("ট্রেড লক করার জন্য দয়া করে আগে লগইন বা ভেরিফাই করুন।");
+      return;
+    }
+    if (!result) return;
+    
+    setLoggingHistory(true);
+    try {
+      await saveTradeLog(
+        user.uid,
+        result.prediction,
+        result.confidence,
+        result.explanation,
+        outcome
+      );
+      setTradeLogged(true);
+    } catch (err: any) {
+      console.error(err);
+      alert("ট্রেড হিস্ট্রি সেইভ করতে সমস্যা হয়েছে: " + (err.message || ""));
+    } finally {
+      setLoggingHistory(false);
+    }
+  };
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -574,6 +634,7 @@ export default function App() {
       }
     }
 
+    setTradeLogged(false);
     setAnalyzing(true);
     setGlobalLoading(true);
     setError(null);
@@ -649,6 +710,7 @@ export default function App() {
     setResult(null);
     setError(null);
     setUserContext('');
+    setTradeLogged(false);
   };
 
   const [adminPhone, setAdminPhone] = useState("");
@@ -1172,6 +1234,59 @@ export default function App() {
               নির্ভুল ফলাফলের জন্য ক্লিয়ার স্ক্রিনশট ব্যবহার করুন এবং নির্দিষ্ট কোনো প্যাটার্ন (যেমন: Head & Shoulders) সম্পর্কে জানতে টেক্সট বক্সে লিখুন।
             </p>
           </div>
+
+          {/* Trade Log History Panel */}
+          <section className="mt-2 border-t border-gray-800/60 pt-4 flex-1 flex flex-col min-h-0">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[10px] uppercase tracking-widest text-gray-500 flex items-center gap-2 font-black">
+                <Activity className="w-3.5 h-3.5 text-emerald-500" />
+                ট্রেড হিস্ট্রি (Trade History)
+              </h3>
+              {user && (
+                <span className="text-[10px] font-mono font-bold bg-[#14151a] px-2 py-0.5 border border-gray-800 rounded-full text-gray-400">
+                  {tradeHistory.length} Saved
+                </span>
+              )}
+            </div>
+            
+            {!user ? (
+              <div className="p-3 bg-[#111216]/50 border border-dashed border-gray-800/40 rounded text-center">
+                <p className="text-[10px] text-gray-650">হিস্ট্রি দেখতে দয়া করে লগইন করুন।</p>
+              </div>
+            ) : tradeHistory.length === 0 ? (
+              <div className="p-3 bg-[#111216]/50 border border-dashed border-gray-800/40 rounded text-center">
+                <p className="text-[10px] text-gray-600">কোনো ট্রেড হিস্ট্রি এখনও সংরক্ষিত নেই।</p>
+              </div>
+            ) : (
+              <div className="space-y-2 overflow-y-auto max-h-[190px] custom-scrollbar pr-1">
+                {tradeHistory.slice(0, 50).map((trade, idx) => (
+                  <div key={trade.id || idx} className="p-2.5 bg-[#14151a] border border-gray-900/40 rounded flex flex-col gap-1 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[10px] font-mono tracking-widest px-1.5 py-0.5 rounded leading-none font-bold ${
+                        trade.prediction === 'UP' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                        trade.prediction === 'DOWN' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
+                        'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                      }`}>
+                        {trade.prediction === 'UP' ? 'BUY / UP' : trade.prediction === 'DOWN' ? 'SELL / DOWN' : 'NEUTRAL'}
+                      </span>
+                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded leading-none ${
+                        trade.outcome === 'PROFIT' ? 'bg-emerald-500 text-black' :
+                        'bg-rose-500 text-black'
+                      }`}>
+                        {trade.outcome}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-gray-400 mt-1">
+                      <span className="font-mono text-[9px]">Confidence: {trade.confidence}%</span>
+                      <span className="font-mono text-gray-600 text-[8px]">
+                        {trade.timestamp?.toDate ? new Date(trade.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </aside>
 
         {/* Main Work Area */}
@@ -1502,21 +1617,7 @@ export default function App() {
 
 
 
-                              {/* Breakout Safe Trade Strategy Card */}
-                              <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-4 space-y-2">
-                                <div className="flex items-center gap-2 text-emerald-400 justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <ShieldCheck className="w-4 h-4 shrink-0" />
-                                    <span className="text-[10px] uppercase tracking-widest font-black leading-none">Safe Trade Strategy (ঝুঁকিমুক্ত ট্রেড ফর্মুলা)</span>
-                                  </div>
-                                  <span className="text-[11px] font-bold bg-emerald-400/10 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                                    শিউরিটি বা নিশ্চয়তা: {result.confidence}%
-                                  </span>
-                                </div>
-                                <p className="text-xs text-gray-300 font-medium leading-relaxed">
-                                  এই সিগন্যালটির সফল হওয়ার নিশ্চয়তা প্রায় <span className="text-emerald-400 font-black">{result.confidence}%</span>। এই ক্যান্ডেলটির উপরে গেলে <span className="text-emerald-400 font-bold uppercase">UP</span> বা এটার নিচে গেলে <span className="text-rose-400 font-bold uppercase">DOWN</span>, এভাবে ট্রেড নিলে কোনো ঝুঁকি থাকবে না।
-                                </p>
-                              </div>
+
 
                               <div className="grid grid-cols-2 gap-4">
                                 <div className="bg-[#0c0d10] border border-gray-800 p-3 rounded text-center">
@@ -1527,6 +1628,43 @@ export default function App() {
                                   <span className="text-[9px] uppercase text-gray-600 block mb-1">Risk Factor</span>
                                   <span className="text-rose-400 font-mono text-sm leading-none">MITIGATED</span>
                                 </div>
+                              </div>
+
+                              {/* Profit/Loss Logging and Feedback System */}
+                              <div className="p-4 bg-[#0a0b0d] border border-gray-800/80 rounded-xl space-y-3">
+                                <div className="flex items-center gap-2 text-gray-400">
+                                  <Clock className="w-4 h-4 text-emerald-500 shrink-0" />
+                                  <span className="text-[10px] uppercase tracking-wider font-extrabold font-mono">ট্রেড ফলাফল সংরক্ষণ করুন (Save Trade Outcome)</span>
+                                </div>
+                                <p className="text-xs text-gray-500">
+                                  এই AI সিগন্যালটির ফলাফল কেমন ছিল? নিচে "Profit" অথবা "Loss" সিলেক্ট করে আপনার ট্রেড হিস্ট্রি বা ইতিহাসে সংরক্ষণ করুন।
+                                </p>
+                                
+                                {tradeLogged ? (
+                                  <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400">
+                                    <Check className="w-4 h-4 shrink-0" />
+                                    <span className="text-xs font-bold">ফলাফল সফলভাবে ইতিহাসে সংরক্ষিত হয়েছে! (Saved successfully to History!)</span>
+                                  </div>
+                                ) : (
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <button
+                                      disabled={loggingHistory}
+                                      onClick={() => handleLogTrade('PROFIT')}
+                                      className="py-2.5 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500 hover:text-black transition-all text-emerald-400 rounded-lg font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.05)] disabled:opacity-50"
+                                    >
+                                      <TrendingUp className="w-4 h-4" />
+                                      Profit (লাভ হয়েছে)
+                                    </button>
+                                    <button
+                                      disabled={loggingHistory}
+                                      onClick={() => handleLogTrade('LOSS')}
+                                      className="py-2.5 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500 hover:text-black transition-all text-rose-400 rounded-lg font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_10px_rgba(244,63,94,0.05)] disabled:opacity-50"
+                                    >
+                                      <TrendingDown className="w-4 h-4 animate-none" />
+                                      Loss (লোকসান হয়েছে)
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             </motion.div>
                           ) : (
@@ -1982,7 +2120,7 @@ export default function App() {
                 <h2 className="text-2xl font-black text-emerald-500 uppercase tracking-tighter flex items-center gap-3 italic">
                   <ShieldCheck className="w-6 h-6" /> System Control Center
                 </h2>
-                <p className="text-gray-500 text-[10px] font-bold uppercase tracking-widest mt-1">Payment Verification System v2.0</p>
+                <p className="text-gray-500 text-[10px] font-bold uppercase tracking-widest mt-1">Payment Verification System v2.5</p>
               </div>
               
               <div className="flex flex-wrap gap-3">
