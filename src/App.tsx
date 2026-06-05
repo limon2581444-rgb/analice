@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX } from 'lucide-react';
 import { analyzeChartImage, AnalysisResult } from './services/geminiService';
 import { toPng } from 'html-to-image';
-import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap, saveTradeLog, getTradeLogsSnap } from './lib/firebase';
+import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap, saveTradeLog, getTradeLogsSnap, clearTradeLogs } from './lib/firebase';
 import { doc, setDoc, serverTimestamp, getDoc, onSnapshot, collection, query, where, orderBy, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { playAnalysisReadySound, playMessageAlertSound, isSoundEnabled, setSoundEnabled } from './utils/audioAlerts';
@@ -89,6 +89,7 @@ export default function App() {
   const [tradeLogged, setTradeLogged] = useState<boolean>(false);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
   const [loggingHistory, setLoggingHistory] = useState<boolean>(false);
+  const [clearingHistory, setClearingHistory] = useState<boolean>(false);
 
   // Binance TRC20 and dynamic settings state
   const [paymentMethod, setPaymentMethod] = useState<'bkash' | 'trc20'>('bkash');
@@ -500,6 +501,25 @@ export default function App() {
       alert("ট্রেড হিস্ট্রি সেইভ করতে সমস্যা হয়েছে: " + (err.message || ""));
     } finally {
       setLoggingHistory(false);
+    }
+  };
+
+  const handleClearTradeHistory = async () => {
+    if (!user) return;
+    const confirmClear = window.confirm("আপনি কি নিশ্চিত যে আপনি আপনার সমস্ত ট্রেড হিস্ট্রি মুছে ফেলতে চান? এটি আর ফেরত পাওয়া যাবে না।\n\nAre you sure you want to clear your trade history? This cannot be undone.");
+    if (!confirmClear) return;
+
+    setClearingHistory(true);
+    // Instantly empty the local history list for immediate visual confirmation
+    setTradeHistory([]);
+    try {
+      await clearTradeLogs(user.uid);
+      alert("ট্রেড হিস্ট্রি সফলভাবে মুছে ফেলা হয়েছে।\nTrade history cleared successfully.");
+    } catch (err: any) {
+      console.error(err);
+      alert("হিস্ট্রি মুছতে সমস্যা হয়েছে: " + (err.message || ""));
+    } finally {
+      setClearingHistory(false);
     }
   };
 
@@ -1214,26 +1234,7 @@ export default function App() {
             </div>
           </section>
 
-          <section>
-            <h3 className="text-[10px] uppercase tracking-widest text-gray-500 mb-4">Market Metrics</h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-[#14151a] border border-gray-800 rounded shadow-inner">
-                <span className="text-[10px] text-gray-400">API LATENCY</span>
-                <span className="text-[10px] text-emerald-500 font-mono">12ms</span>
-              </div>
-              <div className="flex items-center justify-between p-3 bg-[#14151a] border border-gray-800 rounded shadow-inner">
-                <span className="text-[10px] text-gray-400">AI CONFIDENCE</span>
-                <span className="text-[10px] text-emerald-500 font-mono">{result ? result.confidence + '%' : 'PENDING'}</span>
-              </div>
-            </div>
-          </section>
 
-          <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
-            <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest mb-1">Expert Tip:</p>
-            <p className="text-[11px] leading-relaxed text-gray-500">
-              নির্ভুল ফলাফলের জন্য ক্লিয়ার স্ক্রিনশট ব্যবহার করুন এবং নির্দিষ্ট কোনো প্যাটার্ন (যেমন: Head & Shoulders) সম্পর্কে জানতে টেক্সট বক্সে লিখুন।
-            </p>
-          </div>
 
           {/* Trade Log History Panel */}
           <section className="mt-2 border-t border-gray-800/60 pt-4 flex-1 flex flex-col min-h-0">
@@ -1242,11 +1243,24 @@ export default function App() {
                 <Activity className="w-3.5 h-3.5 text-emerald-500" />
                 ট্রেড হিস্ট্রি (Trade History)
               </h3>
-              {user && (
-                <span className="text-[10px] font-mono font-bold bg-[#14151a] px-2 py-0.5 border border-gray-800 rounded-full text-gray-400">
-                  {tradeHistory.length} Saved
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {user && tradeHistory.length > 0 && (
+                  <button
+                    id="clear-trade-history-btn"
+                    onClick={handleClearTradeHistory}
+                    disabled={clearingHistory}
+                    className="text-[9px] uppercase tracking-wider font-extrabold text-rose-400 bg-rose-500/10 border border-rose-500/35 hover:bg-rose-500 hover:text-black transition-all px-2.5 py-1 rounded cursor-pointer disabled:opacity-50 duration-200 outline-none flex items-center gap-1 shadow-[0_0_8px_rgba(244,63,94,0.06)]"
+                    title="সব হিস্ট্রি মুছে ফেলুন (Clear All History)"
+                  >
+                    {clearingHistory ? "Clearing..." : "Clear"}
+                  </button>
+                )}
+                {user && (
+                  <span className="text-[10px] font-mono font-bold bg-[#14151a] px-2 py-0.5 border border-gray-800 rounded-full text-gray-400">
+                    {tradeHistory.length} Saved
+                  </span>
+                )}
+              </div>
             </div>
             
             {!user ? (

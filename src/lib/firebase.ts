@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, User, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, addDoc, collection, serverTimestamp, query, where, getDocs, orderBy, updateDoc, onSnapshot } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, addDoc, collection, serverTimestamp, query, where, getDocs, orderBy, updateDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -271,6 +271,27 @@ export const getTradeLogsSnap = (userId: string, callback: (trades: any[]) => vo
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, path);
+  }
+};
+
+export const clearTradeLogs = async (userId: string) => {
+  const path = `users/${userId}/trades`;
+  try {
+    const q = query(collection(db, 'users', userId, 'trades'));
+    const snapshot = await getDocs(q);
+    const docs = snapshot.docs;
+    
+    // Batch limit in Firestore is 500 operations. We delete in chunks of 400 safely.
+    for (let i = 0; i < docs.length; i += 400) {
+      const batch = writeBatch(db);
+      const chunk = docs.slice(i, i + 400);
+      chunk.forEach((snapDoc) => {
+        batch.delete(snapDoc.ref);
+      });
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 };
 
