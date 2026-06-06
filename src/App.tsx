@@ -1899,8 +1899,7 @@ export default function App() {
                                </div>
                              </div>
                              <div className="text-right">
-                               <span className="text-xs font-mono font-bold text-gray-300 block">{BKASH_NUMBER}</span>
-                               <button onClick={() => { navigator.clipboard.writeText(BKASH_NUMBER); alert("Number Copied!"); }} className="text-[9px] text-[#e2125d] font-bold uppercase underline">Copy Number</button>
+                               <span className="text-xs font-bold text-rose-500 block">No bKash</span>
                              </div>
                           </div>
 
