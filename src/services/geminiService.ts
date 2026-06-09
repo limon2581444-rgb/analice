@@ -88,6 +88,7 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
     5. Include breakout strategy in your Bengali explanation: explain that if the price goes above this candle's top/high, go UP, and if it goes below this candle's bottom/low, go DOWN, indicating that waiting for such confirmations before entering a trade minimizes risk.
     6. CRITICAL ENTRY REQUIREMENT: Identify the current price/level and explicitly state at what exact level or condition the candle needs to close (কত প্রাইসে ক্যান্ডেলটি ক্লোজ হলে পরবর্তী ট্রেড নেওয়া যাবে) to validate the trade direction securely. Mention this closing target level explicitly in Bengali so the user knows exactly where the candle must close to confirm their entry.
     7. ACCURACY & LOSS PREVENTION: To prevent users from losing trades, you must be extremely conservative. Unless you see an exceptionally strong, clean, and 90%+ reliable trend reversal or continuation pattern, default to "NEUTRAL" and advise standing aside. Boldly state that the user must NEVER enter on a running candle, and must wait for the actual candle close to avoid false breakouts.
+    8. 80%+ CONFIDENCE REQUIREMENT: You are STRICTLY forbidden from predicting "UP" or "DOWN" unless you are 80%+ certain. If the confidence in the technical setup is below 80, you MUST return "NEUTRAL" as the prediction.
     
     CRITICAL INSTRUCTION FOR THE EXPLANATION:
     Your "explanation" field in the JSON should contain only high-quality, professional technical reasoning in Bengali, focusing on the chart patterns, support/resistance, indicators, and breakout strategy.
@@ -95,7 +96,7 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
 
 
     SPEED & CONCISENESS REQUIREMENT:
-    Write the "explanation" inside the JSON in maximum 2-3 short, clean, professional sentences (under 50 Bengali words). Focus strictly on the core technical observations and patterns without any conversational greetings or verbose filler text. Keep the "entryTarget" extremely brief (under 1 short sentence). This conciseness is critical to ensure the response is generated and delivered in under 4 seconds!
+    Keep the "explanation" extremely brief - write ONLY 1 to 2 short, concise, high-value technical observations in Bengali (maximum 30 words). Keep "entryTarget" under 10 Bengali words. This extreme brevity is strictly required to guarantee output generation and complete network transit in under 3 seconds!
 
     CRITICAL: Respond ONLY in valid JSON format with the following structure:
     {
@@ -110,11 +111,11 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
   `;
 
   const modelsToTry = [
-    "gemini-3.5-flash",
-    "gemini-flash-latest",
+    "gemini-2.5-flash-lite",
     "gemini-3.1-flash-lite",
     "gemini-2.5-flash",
-    "gemini-2.5-flash-lite"
+    "gemini-3.5-flash",
+    "gemini-flash-latest"
   ];
   
   let text = "";
