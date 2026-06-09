@@ -341,7 +341,47 @@ export default function App() {
     };
   }, [isAdmin, currentView]);
 
-  // Global Paste Handler
+  // Compress image helper for extremely fast upload & processing times
+  const compressAndGetBase64 = (dataUrl: string, maxWidth = 1000, maxHeight = 1000): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = dataUrl;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth || height > maxHeight) {
+          if (width / height > maxWidth / maxHeight) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          // jpeg with 0.8 quality produces incredibly compact files for faster uploads and Gemini processing
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        } else {
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => {
+        resolve(dataUrl);
+      };
+    });
+  };
+
   const handlePaste = useCallback((e: ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -351,8 +391,9 @@ export default function App() {
         const file = items[i].getAsFile();
         if (file) {
           const reader = new FileReader();
-          reader.onload = () => {
-            setImage(reader.result as string);
+          reader.onload = async () => {
+            const compressed = await compressAndGetBase64(reader.result as string);
+            setImage(compressed);
             setResult(null);
             setError(null);
           };
@@ -383,8 +424,9 @@ export default function App() {
         return;
       }
       const reader = new FileReader();
-      reader.onload = () => {
-        setImage(reader.result as string);
+      reader.onload = async () => {
+        const compressed = await compressAndGetBase64(reader.result as string);
+        setImage(compressed);
         setResult(null);
         setError(null);
       };
