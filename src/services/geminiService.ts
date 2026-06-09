@@ -87,6 +87,7 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
     4. Observe RSI, Volume, or EMA indicators if visible.
     5. Include breakout strategy in your Bengali explanation: explain that if the price goes above this candle's top/high, go UP, and if it goes below this candle's bottom/low, go DOWN, indicating that waiting for such confirmations before entering a trade minimizes risk.
     6. CRITICAL ENTRY REQUIREMENT: Identify the current price/level and explicitly state at what exact level or condition the candle needs to close (কত প্রাইসে ক্যান্ডেলটি ক্লোজ হলে পরবর্তী ট্রেড নেওয়া যাবে) to validate the trade direction securely. Mention this closing target level explicitly in Bengali so the user knows exactly where the candle must close to confirm their entry.
+    7. ACCURACY & LOSS PREVENTION: To prevent users from losing trades, you must be extremely conservative. Unless you see an exceptionally strong, clean, and 90%+ reliable trend reversal or continuation pattern, default to "NEUTRAL" and advise standing aside. Boldly state that the user must NEVER enter on a running candle, and must wait for the actual candle close to avoid false breakouts.
     
     CRITICAL INSTRUCTION FOR THE EXPLANATION:
     Your "explanation" field in the JSON should contain only high-quality, professional technical reasoning in Bengali, focusing on the chart patterns, support/resistance, indicators, and breakout strategy.
@@ -101,7 +102,7 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
       "prediction": "UP" | "DOWN" | "NEUTRAL",
       "confidence": number (0 to 100),
       "explanation": "Detailed technical reasoning in Bengali (Bangla)",
-      "entryTarget": "কত প্রাইসে বা কীভাবে ক্যান্ডেলটি ক্লোজ হলে পরবর্তী ট্রেড নেওয়া যাবে তার একদম স্পষ্ট, বড় এবং নির্দিষ্ট বাংলা নির্দেশনা (যেমন: '০.৪৭৭৯৮ লেভেলের অত্যন্ত জোরালোভাবে উপরে ক্লোজ দিতে হবে')",
+      "entryTarget": "কত প্রাইসে বা কীভাবে ক্যান্ডেলটি ক্লোজ হলে পরবর্তী ট্রেড নেওয়া যাবে তার একদম স্পষ্ট, বড় এবং নির্দিষ্ট বাংলা নির্দেশনা (যেমন: 'অবশ্যই ক্যান্ডেল জোরালোভাবে ০.৪৭৭৯৮ উপরে ক্লোজ দেওয়ার পর তবেই এন্ট্রি বসাবেন')",
       "patterns": ["Pattern Name 1", "Pattern Name 2"]
     }
 

@@ -1624,8 +1624,20 @@ export default function App() {
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-[10px] text-gray-500 italic mt-3">
+                                <p className="text-[10px] text-gray-500 italic mt-3 font-sans">
                                   * ক্যান্ডেল সম্পূর্ণ ক্যান্ডেল টাইম শেষ হয়ে ক্লোজ হওয়ার পূর্বে তাড়াহুড়ো করে এন্ট্রি নিবেন না। ক্লোজিং নিশ্চিত করাই সবচেয়ে নিরাপদ কৌশল।
+                                </p>
+                              </div>
+
+                              {/* Loss Prevention Alert Box */}
+                              <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl space-y-2 mt-4">
+                                <div className="flex items-center gap-2 text-rose-400">
+                                  <AlertCircle className="w-4.5 h-4.5 shrink-0" />
+                                  <span className="text-[10px] uppercase tracking-wider font-extrabold font-mono text-rose-300">লস প্রতিরোধের মূল নির্দেশনাবলী (Loss Prevention Rules)</span>
+                                </div>
+                                <p className="text-xs text-gray-300 leading-relaxed font-sans">
+                                  ১. <strong className="text-rose-400 text-[13px]">কখনোই রানিং ক্যান্ডেল (Running Candle) এ এন্ট্রি নিবেন না!</strong> ক্যান্ডেল সম্পূর্ণ বন্ধ বা ক্লোজ হওয়ার কনফার্মেশন পাওয়ার পর তবেই ট্রেড বসাবেন।<br/>
+                                  ২. আমাদের এআই প্রযুক্তি এখন অত্যন্ত নিখুঁত এবং সাবধানী (Conservative)। যদি সিগন্যাল শতভাগ নিশ্চিত না হয়, এআই স্বয়ংক্রিয়ভাবে <strong className="text-amber-400 font-bold">NEUTRAL</strong> বা ওয়েট নোটিফিকেশন প্রদান করবে। কোনো ডিরেকশন ছাড়া রিস্কি এন্ট্রি এড়িয়ে চলুন।
                                 </p>
                               </div>
 
