@@ -93,6 +93,9 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
     Do NOT write any introductory sentences that repeat the predicted direction (e.g., do NOT start with "পরবর্তী ক্যান্ডেল সিগন্যাল:"), confidence level, or duplicate closing targets. Dive straight into analyzing the candlestick formations, market psychology, and specific market observation details.
 
 
+    SPEED & CONCISENESS REQUIREMENT:
+    Write the "explanation" inside the JSON in maximum 2-3 short, clean, professional sentences (under 50 Bengali words). Focus strictly on the core technical observations and patterns without any conversational greetings or verbose filler text. Keep the "entryTarget" extremely brief (under 1 short sentence). This conciseness is critical to ensure the response is generated and delivered in under 4 seconds!
+
     CRITICAL: Respond ONLY in valid JSON format with the following structure:
     {
       "prediction": "UP" | "DOWN" | "NEUTRAL",
@@ -106,10 +109,10 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
   `;
 
   const modelsToTry = [
-    "gemini-3.5-flash",
-    "gemini-3.1-flash-lite",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
     "gemini-flash-latest"
   ];
   

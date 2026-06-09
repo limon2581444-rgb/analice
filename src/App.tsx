@@ -1821,7 +1821,7 @@ export default function App() {
                    <h3 className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-4">Pro Features Unlocked</h3>
                    <ul className="space-y-3">
                      {[
-                       'Unlimited Chart Analysis',
+                       'only 26 din  par day us 30',
                        'Priority Neural Processing',
                        'Advanced Pattern Detection',
                        'Higher Confidence Accuracy',
@@ -1860,7 +1860,7 @@ export default function App() {
                       <div className="flex justify-between items-start mb-8">
                         <div>
                           <h2 className="text-2xl font-black text-white italic tracking-tighter">KORIM TRADER PRO</h2>
-                          <p className="text-[10px] text-emerald-500 uppercase tracking-widest font-black">৫০% অফার প্রাইস চলতেছে</p>
+                          <p className="text-[10px] text-emerald-500 uppercase tracking-widest font-black">80% discount cholce</p>
                         </div>
                         <div className="text-right">
                           <span className="text-3xl font-black text-emerald-500">20$</span>
@@ -1904,7 +1904,14 @@ export default function App() {
                           </div>
 
                           {/* Binance TRC20 Gateway Options Row */}
-                          <div className="mt-3 flex items-center justify-between p-3.5 bg-gradient-to-r from-blue-500/5 to-slate-900 border border-gray-800/80 rounded-xl">
+                          <div 
+                             onClick={() => setPaymentMethod('trc20')}
+                             className={`mt-3 flex items-center justify-between p-3.5 bg-gradient-to-r border rounded-xl cursor-pointer transition-all ${
+                               paymentMethod === 'trc20' 
+                                 ? 'from-blue-500/10 to-slate-900 border-blue-500/60 shadow-[0_0_15px_rgba(59,130,246,0.15)]' 
+                                 : 'from-blue-500/5 to-slate-900 border-gray-800/80 hover:border-blue-500/30'
+                             }`}
+                           >
                             <div className="flex items-center gap-3">
                               <div className="w-7 h-7 bg-[#f3ba2f]/10 rounded-md flex items-center justify-center font-bold text-[#f3ba2f] text-[10px] uppercase tracking-tighter">
                                 BIN
@@ -2991,32 +2998,16 @@ export default function App() {
           </AnimatePresence>
 
           <div className="relative group">
-            {!showChat && (
-              <>
-                <span className="absolute inset-0 rounded-full bg-emerald-500/30 animate-pulse-ring pointer-events-none scale-105" />
-                <span className="absolute -inset-1 rounded-full border border-emerald-500/30 animate-pulse-ring pointer-events-none" />
-              </>
-            )}
+            <span className="absolute inset-0 rounded-full bg-emerald-500/30 animate-pulse-ring pointer-events-none scale-105" />
+            <span className="absolute -inset-1 rounded-full border border-emerald-500/30 animate-pulse-ring pointer-events-none" />
             <button 
-              onClick={() => setShowChat(!showChat)}
-              className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 relative z-10 ${
-                showChat 
-                ? 'bg-rose-500 rotate-90 scale-95' 
-                : 'bg-emerald-500 hover:scale-110 hover:shadow-emerald-500/30 animate-pulse-glowing'
-              }`}
+              onClick={() => window.open("https://t.me/Korimanalice", "_blank")}
+              className="w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 relative z-10 bg-emerald-500 hover:scale-110 hover:shadow-emerald-500/30 animate-pulse-glowing"
+              title="সব সমস্যার সমাধানের জন্য আমাদের টেলিগ্রাম চ্যানেলে যোগ দিন (Join our Telegram Channel)"
             >
-              {showChat ? (
-                <X className="w-6 h-6 text-white" />
-              ) : (
-                <div className="relative">
-                  <MessageCircle className="w-6 h-6 text-black animate-bounce [animation-duration:3s]" />
-                  {userList.find(u => u.userId === user.uid)?.unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-[8px] font-black text-white rounded-full flex items-center justify-center border-2 border-emerald-500 animate-pulse">
-                      {messages.filter(m => m.sender === 'ADMIN' && !m.read).length}
-                    </span>
-                  )}
-                </div>
-              )}
+              <div className="relative">
+                <MessageCircle className="w-6 h-6 text-black animate-bounce [animation-duration:3s]" />
+              </div>
             </button>
           </div>
         </div>
