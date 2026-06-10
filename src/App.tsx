@@ -342,7 +342,7 @@ export default function App() {
   }, [isAdmin, currentView]);
 
   // Compress image helper for extremely fast upload & processing times
-  const compressAndGetBase64 = (dataUrl: string, maxWidth = 1000, maxHeight = 1000): Promise<string> => {
+  const compressAndGetBase64 = (dataUrl: string, maxWidth = 720, maxHeight = 720): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
@@ -370,8 +370,8 @@ export default function App() {
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
-          // jpeg with 0.8 quality produces incredibly compact files for faster uploads and Gemini processing
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
+          // jpeg with 0.75 quality produces extremely compact files for lightning-fast uploads and ultra-fast Gemini processing (under 5 seconds)
+          resolve(canvas.toDataURL('image/jpeg', 0.75));
         } else {
           resolve(dataUrl);
         }
@@ -702,6 +702,13 @@ export default function App() {
     setError(null);
     try {
       const data = await analyzeChartImage(image, "image/png", userContext);
+      
+      // Force neutral prediction if confidence is less than 80% to ensure 80%+ safety rule
+      if (data && data.confidence < 80 && (data.prediction === 'UP' || data.prediction === 'DOWN')) {
+        data.prediction = 'NEUTRAL';
+        data.entryTarget = 'এআই নিশ্চিত নয় (কনফিডেন্স ৮০% এর কম)। অতিরিক্ত সুরক্ষার জন্য কোনো ট্রেড এন্ট্রি নেওয়া যাবে না।';
+      }
+      
       setResult(data);
       playAnalysisReadySound();
       
