@@ -17,6 +17,7 @@ import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPa
 import { doc, setDoc, serverTimestamp, getDoc, onSnapshot, collection, query, where, orderBy, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { playAnalysisReadySound, playMessageAlertSound, isSoundEnabled, setSoundEnabled } from './utils/audioAlerts';
+import { TrendAnalysisGraph } from './components/TrendAnalysisGraph';
 
 function cleanExplanation(text: string): string {
   if (!text) return "";
@@ -90,6 +91,7 @@ export default function App() {
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
   const [loggingHistory, setLoggingHistory] = useState<boolean>(false);
   const [clearingHistory, setClearingHistory] = useState<boolean>(false);
+  const [historyTab, setHistoryTab] = useState<'list' | 'trend'>('list');
 
   // Binance TRC20 and dynamic settings state
   const [paymentMethod, setPaymentMethod] = useState<'bkash' | 'trc20'>('bkash');
@@ -724,11 +726,38 @@ export default function App() {
     } catch (err: any) {
       console.error(err);
       const msg = err.message || '';
+      
+      // Extract Google's specific error message if present in the REST response
+      let googleErrorMsg = '';
+      try {
+        const errorJsonStart = msg.indexOf('{');
+        if (errorJsonStart !== -1) {
+          const errorJsonStr = msg.substring(errorJsonStart);
+          const parsed = JSON.parse(errorJsonStr);
+          if (parsed?.error?.message) {
+            googleErrorMsg = parsed.error.message;
+          }
+        }
+      } catch (e) {
+        // failed to parse or no json found
+      }
+
+      const googleFeedback = googleErrorMsg ? `\n\n[Google Error Message: "${googleErrorMsg}"]` : '';
+
       if (msg.includes('GEMINI_API_KEY') || msg.includes('API_KEY') || msg.includes('apiKey') || msg.includes('missing')) {
-        setError(msg || 'GEMINI_API_KEY is missing on the server. Please check environment variables.');
+        setError((msg || 'GEMINI_API_KEY is missing.') + googleFeedback);
+      } else if (msg.includes('key validation failed') || msg.includes('API key not valid') || msg.includes('INVALID_ARGUMENT')) {
+        setError(
+          `আপনার দেওয়া Gemini API Key-টি সঠিক নয় (Invalid API Key)।` + googleFeedback + `\n\n` +
+          `সঠিক API Key সেট করার জন্য নিচের নিয়মটি অনুসরণ করুন:\n` +
+          `১. Google AI Studio (aistudio.google.com) ওয়েবসাইটটিতে যান।\n` +
+          `২. "Create API Key" বাটনে ট্রাই করে একটি নতুন API Key জেনারেট করুন। (একটি সঠিক Gemini API Key সাধারণত 'AIzaSy' দিয়ে শুরু হয় এবং ৩৯ অক্ষরের হয়ে থাকে।)\n` +
+          `৩. সেটি কপি করে বাম পাশের নিচে "Settings" (⚙️ আইকন) এ গিয়ে "GEMINI_API_KEY" নামে নতুন সঠিক কি-টি যুক্ত করুন।\n\n` +
+          `(Detailed English Instructions: The API Key you provided is invalid. Please get a valid key from aistudio.google.com. Standard Gemini keys typically start with 'AIzaSy' and are 39 characters long. Copy and save it in Settings (⚙️ icon) > Environment Variables as GEMINI_API_KEY.)`
+        );
       } else if (msg.includes('denied access') || msg.includes('PERMISSION_DENIED')) {
         setError(
-          `আপনার API কি বা প্রজেক্টটির এক্সেস গুগল ব্লক বা ডিনাই (Denied) করেছে।\n\n` +
+          `আপনার API কি বা প্রজেক্টটির এক্সেস গুগল ব্লক বা ডিনাই (Denied) করেছে।` + googleFeedback + `\n\n` +
           `এটি ঠিক করার জন্য নিচের ধাপগুলো অনুসরণ করুন:\n` +
           `১. Google AI Studio (aistudio.google.com) এ যান।\n` +
           `২. বাম পাশে "Create API Key" বাটনে ক্লিক করুন।\n` +
@@ -737,7 +766,7 @@ export default function App() {
           `(Detailed English Instructions: Google has denied access for this specific sandbox project. Please go to aistudio.google.com, click "Create API key", and select "Create API key in new project" or choose a personal/different project instead of selecting the default "ai-studio-applet-webapp..." project. Copy that new key and update it here in Settings (⚙️) > Environment Variables as GEMINI_API_KEY.)`
         );
       } else {
-        setError('বিশ্লেষণ করতে গোলমাল হয়েছে। আবার চেষ্টা করুন। (' + (msg || 'Unknown Error') + ')');
+        setError('বিশ্লেষণ করতে গোলমাল হয়েছে। আবার চেষ্টা করুন।' + googleFeedback + ' (' + (msg || 'Unknown Error') + ')');
       }
     } finally {
       setAnalyzing(false);
@@ -1321,33 +1350,65 @@ export default function App() {
                 <p className="text-[10px] text-gray-600">কোনো ট্রেড হিস্ট্রি এখনও সংরক্ষিত নেই।</p>
               </div>
             ) : (
-              <div className="space-y-2 overflow-y-auto max-h-[190px] custom-scrollbar pr-1">
-                {tradeHistory.slice(0, 50).map((trade, idx) => (
-                  <div key={trade.id || idx} className="p-2.5 bg-[#14151a] border border-gray-900/40 rounded flex flex-col gap-1 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[10px] font-mono tracking-widest px-1.5 py-0.5 rounded leading-none font-bold ${
-                        trade.prediction === 'UP' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                        trade.prediction === 'DOWN' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
-                        'bg-amber-500/10 text-amber-500 border border-amber-500/20'
-                      }`}>
-                        {trade.prediction === 'UP' ? 'BUY / UP' : trade.prediction === 'DOWN' ? 'SELL / DOWN' : 'NEUTRAL'}
-                      </span>
-                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded leading-none ${
-                        trade.outcome === 'PROFIT' ? 'bg-emerald-500 text-black' :
-                        'bg-rose-500 text-black'
-                      }`}>
-                        {trade.outcome}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-[10px] text-gray-400 mt-1">
-                      <span className="font-mono text-[9px]">Confidence: {trade.confidence}%</span>
-                      <span className="font-mono text-gray-600 text-[8px]">
-                        {trade.timestamp?.toDate ? new Date(trade.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
-                      </span>
-                    </div>
+              <>
+                {/* Tab switch for Trade History / Analytics */}
+                <div className="flex border-b border-gray-900/60 mb-3 text-[9px] font-mono shrink-0">
+                  <button
+                    onClick={() => setHistoryTab('list')}
+                    className={`flex-1 pb-1.5 font-bold tracking-wider transition-colors border-b cursor-pointer ${
+                      historyTab === 'list' 
+                        ? 'text-emerald-500 border-emerald-500' 
+                        : 'text-gray-500 border-transparent hover:text-gray-400'
+                    }`}
+                  >
+                    LIST (লগ তালিকা)
+                  </button>
+                  <button
+                    onClick={() => setHistoryTab('trend')}
+                    className={`flex-1 pb-1.5 font-bold tracking-wider transition-colors border-b cursor-pointer ${
+                      historyTab === 'trend' 
+                        ? 'text-emerald-500 border-emerald-500' 
+                        : 'text-gray-500 border-transparent hover:text-gray-400'
+                    }`}
+                  >
+                    ANALYTICS (ট্রেন্ড গ্রাফ)
+                  </button>
+                </div>
+
+                {historyTab === 'list' ? (
+                  <div className="space-y-2 overflow-y-auto max-h-[300px] custom-scrollbar pr-1 flex-1">
+                    {tradeHistory.slice(0, 50).map((trade, idx) => (
+                      <div key={trade.id || idx} className="p-2.5 bg-[#14151a] border border-gray-900/40 rounded flex flex-col gap-1 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className={`text-[10px] font-mono tracking-widest px-1.5 py-0.5 rounded leading-none font-bold ${
+                            trade.prediction === 'UP' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                            trade.prediction === 'DOWN' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
+                            'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                          }`}>
+                            {trade.prediction === 'UP' ? 'BUY / UP' : trade.prediction === 'DOWN' ? 'SELL / DOWN' : 'NEUTRAL'}
+                          </span>
+                          <span className={`text-[9px] font-black px-1.5 py-0.5 rounded leading-none ${
+                            trade.outcome === 'PROFIT' ? 'bg-emerald-500 text-black' :
+                            'bg-rose-500 text-black'
+                          }`}>
+                            {trade.outcome}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] text-gray-400 mt-1">
+                          <span className="font-mono text-[9px]">Confidence: {trade.confidence}%</span>
+                          <span className="font-mono text-gray-600 text-[8px]">
+                            {trade.timestamp?.toDate ? new Date(trade.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                ) : (
+                  <div className="overflow-y-auto max-h-[300px] custom-scrollbar pr-1 flex-1">
+                    <TrendAnalysisGraph tradeHistory={tradeHistory} />
+                  </div>
+                )}
+              </>
             )}
           </section>
         </aside>
