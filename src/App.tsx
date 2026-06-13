@@ -725,34 +725,7 @@ export default function App() {
       }
     } catch (err: any) {
       console.error(err);
-      const msg = err.message || '';
-      
-      // Extract Google's specific error message if present in the REST response
-      let googleErrorMsg = '';
-      try {
-        const errorJsonStart = msg.indexOf('{');
-        if (errorJsonStart !== -1) {
-          const errorJsonStr = msg.substring(errorJsonStart);
-          const parsed = JSON.parse(errorJsonStr);
-          if (parsed?.error?.message) {
-            googleErrorMsg = parsed.error.message;
-          }
-        }
-      } catch (e) {
-        // failed to parse or no json found
-      }
-
-      const googleFeedback = googleErrorMsg ? `\n\n[Google Error Message: "${googleErrorMsg}"]` : '';
-
-      if (msg.includes('GEMINI_API_KEY') || msg.includes('API_KEY') || msg.includes('apiKey') || msg.includes('missing') ||
-          msg.includes('key validation failed') || msg.includes('API key not valid') || msg.includes('INVALID_ARGUMENT') ||
-          msg.includes('denied access') || msg.includes('PERMISSION_DENIED')) {
-        setError(
-          `ডেভেলপার একটিভ না (Developer not active)`
-        );
-      } else {
-        setError('বিশ্লেষণ করতে গোলমাল হয়েছে। আবার চেষ্টা করুন।' + googleFeedback + ' (' + (msg || 'Unknown Error') + ')');
-      }
+      setError(`ডেভেলপার একটিভ না (Developer not active)`);
     } finally {
       setAnalyzing(false);
       setGlobalLoading(false);
