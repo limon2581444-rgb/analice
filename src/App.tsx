@@ -744,26 +744,11 @@ export default function App() {
 
       const googleFeedback = googleErrorMsg ? `\n\n[Google Error Message: "${googleErrorMsg}"]` : '';
 
-      if (msg.includes('GEMINI_API_KEY') || msg.includes('API_KEY') || msg.includes('apiKey') || msg.includes('missing')) {
-        setError((msg || 'GEMINI_API_KEY is missing.') + googleFeedback);
-      } else if (msg.includes('key validation failed') || msg.includes('API key not valid') || msg.includes('INVALID_ARGUMENT')) {
+      if (msg.includes('GEMINI_API_KEY') || msg.includes('API_KEY') || msg.includes('apiKey') || msg.includes('missing') ||
+          msg.includes('key validation failed') || msg.includes('API key not valid') || msg.includes('INVALID_ARGUMENT') ||
+          msg.includes('denied access') || msg.includes('PERMISSION_DENIED')) {
         setError(
-          `আপনার দেওয়া Gemini API Key-টি সঠিক নয় (Invalid API Key)।` + googleFeedback + `\n\n` +
-          `সঠিক API Key সেট করার জন্য নিচের নিয়মটি অনুসরণ করুন:\n` +
-          `১. Google AI Studio (aistudio.google.com) ওয়েবসাইটটিতে যান।\n` +
-          `২. "Create API Key" বাটনে ট্রাই করে একটি নতুন API Key জেনারেট করুন। (একটি সঠিক Gemini API Key সাধারণত 'AIzaSy' দিয়ে শুরু হয় এবং ৩৯ অক্ষরের হয়ে থাকে।)\n` +
-          `৩. সেটি কপি করে বাম পাশের নিচে "Settings" (⚙️ আইকন) এ গিয়ে "GEMINI_API_KEY" নামে নতুন সঠিক কি-টি যুক্ত করুন।\n\n` +
-          `(Detailed English Instructions: The API Key you provided is invalid. Please get a valid key from aistudio.google.com. Standard Gemini keys typically start with 'AIzaSy' and are 39 characters long. Copy and save it in Settings (⚙️ icon) > Environment Variables as GEMINI_API_KEY.)`
-        );
-      } else if (msg.includes('denied access') || msg.includes('PERMISSION_DENIED')) {
-        setError(
-          `আপনার API কি বা প্রজেক্টটির এক্সেস গুগল ব্লক বা ডিনাই (Denied) করেছে।` + googleFeedback + `\n\n` +
-          `এটি ঠিক করার জন্য নিচের ধাপগুলো অনুসরণ করুন:\n` +
-          `১. Google AI Studio (aistudio.google.com) এ যান।\n` +
-          `২. বাম পাশে "Create API Key" বাটনে ক্লিক করুন।\n` +
-          `৩. গুরুত্বপূর্ণ: "ai-studio-applet-webapp..." প্রজেক্টটি সিলেক্ট করবেন না। এর বদলে "Create API key in new project" বাটনে ক্লিক করুন অথবা আপনার অন্য কোনো পার্সোনাল প্রজেক্ট সিলেক্ট করুন।\n` +
-          `৪. নতুন তৈরি করা API কি-টি কপি করে এখানে Settings (⚙️) এ "GEMINI_API_KEY" হিসেবে সেট করুন।\n\n` +
-          `(Detailed English Instructions: Google has denied access for this specific sandbox project. Please go to aistudio.google.com, click "Create API key", and select "Create API key in new project" or choose a personal/different project instead of selecting the default "ai-studio-applet-webapp..." project. Copy that new key and update it here in Settings (⚙️) > Environment Variables as GEMINI_API_KEY.)`
+          `ডেভেলপার একটিভ না (Developer not active)`
         );
       } else {
         setError('বিশ্লেষণ করতে গোলমাল হয়েছে। আবার চেষ্টা করুন।' + googleFeedback + ' (' + (msg || 'Unknown Error') + ')');
