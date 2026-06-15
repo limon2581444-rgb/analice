@@ -1692,9 +1692,31 @@ export default function App() {
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-[10px] text-gray-500 italic mt-3 font-sans leading-relaxed">
-                                  * ক্যান্ডেল সম্পূর্ণ ক্যান্ডেল টাইম শেষ হয়ে ক্লোজ হওয়ার পূর্বে তাড়াহুড়ো করে এন্ট্রি নিবেন না। ক্লোজিং নিশ্চিত করাই সবচেয়ে নিরাপদ কৌশল। ক্যান্ডেল যদি এই নির্দেশিত লেভেলের ওপরে যায় তাহলে UP অথবা নিচে গেলে DOWN (যেটা আপনার সিগন্যালে দেওয়া আছে) সেই অনুযায়ী ট্রেড নিবেন।
-                                </p>
+                                <div className="mt-4 pt-3 border-t border-gray-800/50 space-y-2.5">
+                                  <p className="text-[11.5px] text-gray-300 font-sans leading-relaxed flex items-start gap-1.5">
+                                    <span className="text-emerald-500 font-extrabold shrink-0">🟢</span>
+                                    <span>
+                                      <strong>কত উপরে ক্লোজ হলে UP এন্ট্রি নিবেন:</strong> ক্যান্ডেল টাইম শেষ হওয়ার পর ক্যান্ডেলের ক্লোজিং প্রাইস অবশ্যই আমাদের নির্দেশিত লেভেল{' '}
+                                      <strong className="text-emerald-400 underline decoration-emerald-500/30">
+                                        {result.entryTarget || "রেজিস্টেন্স বা পূর্ববর্তী ক্যান্ডেলের হাই"}
+                                      </strong>{' '}
+                                      এর <strong>ওপরে (কমপক্ষে ১-২ পয়েন্ট/পিপস ওপরে)</strong> ক্লোজ হতে হবে। তবেই পরবর্তী ক্যান্ডেলের শুরুতে নিশ্চিন্তে <strong>UP (Call)</strong> ট্রেড নিবেন।
+                                    </span>
+                                  </p>
+                                  <p className="text-[11.5px] text-gray-300 font-sans leading-relaxed flex items-start gap-1.5">
+                                    <span className="text-rose-500 font-extrabold shrink-0">🔴</span>
+                                    <span>
+                                      <strong>কত নিচে ক্লোজ হলে DOWN এন্ট্রি নিবেন:</strong> ক্যান্ডেল টাইম শেষ হওয়ার পর ক্যান্ডেলের ক্লোজিং প্রাইস অবশ্যই আমাদের নির্দেশিত লেভেল{' '}
+                                      <strong className="text-rose-400 underline decoration-rose-500/30">
+                                        {result.entryTarget || "সাপোর্ট বা পূর্ববর্তী ক্যান্ডেলের লো"}
+                                      </strong>{' '}
+                                      এর <strong>নিচে (কমপক্ষে ১-২ পয়েন্ট/পিপস নিচে)</strong> ক্লোজ হতে হবে। তবেই পরবর্তী ক্যান্ডেলের শুরুতে নিশ্চিন্তে <strong>DOWN (Put)</strong> ট্রেড নিবেন।
+                                    </span>
+                                  </p>
+                                  <p className="text-[10px] text-amber-500 italic font-sans leading-relaxed pl-3 border-l border-amber-500/20 mt-1">
+                                    * ক্যান্ডেল সম্পূর্ণ সময় শেষ হয়ে ক্লোজ হওয়ার পূর্বে কখনোই তাড়াহুড়ো করে বা রানিং ক্যান্ডেলে এন্ট্রি নিবেন না। লেভেল বা প্রাইস কনফার্মেশন নিশ্চিত করাই সবচেয়ে নিরাপদ ও লাভজনক কৌশল।
+                                  </p>
+                                </div>
                               </div>
 
                               {/* Loss Prevention Alert Box */}
