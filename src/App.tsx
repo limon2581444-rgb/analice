@@ -204,6 +204,21 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
+  const isUserSubscribed = userData?.subscriptionStatus === 'ACTIVE' && 
+                          userData?.subscriptionExpiresAt && 
+                          userData.subscriptionExpiresAt.toDate() > new Date();
+
+  // Force unverified logged-in non-admin to payment view and keep them there
+  useEffect(() => {
+    if (user && !isAdmin) {
+      if (userData) {
+        if (!isUserSubscribed) {
+          setCurrentView('payment');
+        }
+      }
+    }
+  }, [user, userData, isAdmin, isUserSubscribed]);
+
   // Dedicated listener for local logged trade signals (Profit / Loss history)
   useEffect(() => {
     if (!user) {
@@ -467,14 +482,28 @@ export default function App() {
   const handleBulkAction = async (status: 'VERIFIED' | 'REJECTED') => {
     if (selectedRequests.length === 0) return;
     
-    if (!confirm(`${selectedRequests.length}টি রিকোয়েস্ট একসাথে ${status === 'VERIFIED' ? 'অ্যাপ্রুভ' : 'রিজেক্ট'} করতে চান?`)) return;
+    if (!confirm(`${selectedRequests.length}টি রিকোয়েস্ট একসাথে ${status === 'VERIFIED' ? 'অ্যাপ্রুভ ও ভেরিফাই' : 'রিজেক্ট ও আনভেরিফাই'} করতে চান?`)) return;
 
     setAnalyzing(true);
     setGlobalLoading(true);
     try {
-      await Promise.all(selectedRequests.map(id => updatePaymentStatus(id, status)));
+      const requestsToUpdate = paymentRequests.filter(r => selectedRequests.includes(r.id));
+      
+      await Promise.all(requestsToUpdate.map(async (req) => {
+        await updatePaymentStatus(req.id, status);
+        const userRef = doc(db, 'users', req.userId);
+        if (status === 'VERIFIED') {
+          await activateSubscription(req.userId);
+        } else {
+          await updateDoc(userRef, { subscriptionStatus: 'NONE' });
+        }
+      }));
+
       setSelectedRequests([]);
-      // Refresh requests (they are on snapshot so they update automatically)
+      const reqs = await getPaymentRequests();
+      if (reqs) {
+        setPaymentRequests(reqs);
+      }
     } catch (err) {
       console.error("Bulk Action Error:", err);
       setError("বাল্ক একশন সম্পন্ন করতে সমস্যা হয়েছে।");
@@ -876,7 +905,12 @@ export default function App() {
       if (isCurrentlyExpired) {
         await activateSubscription(uid);
       } else if (currentStatus === 'ACTIVE') {
-        await deactivateSubscription(uid);
+        const ref = doc(db, 'users', uid);
+        await updateDoc(ref, {
+          subscriptionStatus: 'NONE',
+          subscriptionExpiresAt: null,
+          verifiedAt: null
+        });
       } else {
         await activateSubscription(uid);
       }
@@ -955,7 +989,11 @@ export default function App() {
 
       {/* Top Navigation Bar */}
       <header className="h-16 md:h-18 border-b border-gray-800 flex items-center justify-between px-3 md:px-8 bg-[#0c0d10] shadow-2xl shrink-0">
-        <div className="flex items-center space-x-2 md:space-x-4 cursor-pointer shrink-0" onClick={() => setCurrentView('analysis')}>
+        <div className="flex items-center space-x-2 md:space-x-4 cursor-pointer shrink-0" onClick={() => {
+          if (isAdmin || !user || isUserSubscribed) {
+            setCurrentView('analysis');
+          }
+        }}>
           <div className="w-7 h-7 md:w-8 md:h-8 bg-emerald-500 rounded flex items-center justify-center shrink-0">
             <Activity className="w-4 h-4 md:w-5 md:h-5 text-black" />
           </div>
@@ -1148,6 +1186,7 @@ export default function App() {
                     className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
                   />
                 </div>
+
                 <div className="space-y-1.5">
                   <label className="text-[10px] text-gray-500 uppercase tracking-widest font-black">Password</label>
                   <input 
@@ -1222,6 +1261,7 @@ export default function App() {
               <MessageSquare className="w-3 h-3" /> Analysis Prompt (নির্দেশনা)
             </h3>
             <div className="flex-1 flex flex-col gap-3">
+
               <div className="relative flex-1 flex flex-col">
                 <textarea
                   value={userContext}
@@ -1497,9 +1537,11 @@ export default function App() {
                         </div>
 
                         {userContext && (
-                          <div className="hidden lg:block bg-[#14151a] border border-gray-800 p-3 rounded-lg">
-                            <span className="text-[10px] uppercase text-gray-600 font-bold tracking-widest block mb-1">User Instruction</span>
-                            <p className="text-xs italic text-gray-400">"{userContext}"</p>
+                          <div className="hidden lg:block bg-[#14151a] border border-gray-800 p-3 rounded-lg space-y-2">
+                            <div>
+                              <span className="text-[10px] uppercase text-gray-650 font-bold tracking-widest block mb-0.5">User Instruction</span>
+                              <p className="text-xs italic text-gray-400">"{userContext}"</p>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1654,23 +1696,11 @@ export default function App() {
                                   result.prediction === 'DOWN' ? 'bg-[#f43f5e]' :
                                   'bg-[#f59e0b]'
                                 }`} />
-                                <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider mb-2">
-                                  <div className={`w-2.5 h-2.5 rounded-full animate-ping shrink-0 ${
-                                    result.prediction === 'UP' ? 'bg-emerald-400' :
-                                    result.prediction === 'DOWN' ? 'bg-rose-400' :
-                                    'bg-amber-400'
-                                  }`} />
-                                  <span className={
-                                    result.prediction === 'UP' ? 'text-emerald-400 font-black' :
-                                    result.prediction === 'DOWN' ? 'text-rose-400 font-black' :
-                                    'text-amber-400 font-black'
-                                  }>
-                                    ক্যান্ডেল ক্লোজিং কনফার্মেশন (CANDLE CLOSING CONFIRMATION)
-                                  </span>
+                                
+                                <div className="text-xs text-gray-400 font-mono uppercase tracking-wider mb-2">
+                                  কনফার্মেশন লেভেল (CONFIRMATION LEVEL)
                                 </div>
-                                <h4 className="text-gray-400 text-xs font-semibold mb-3">
-                                  পরবর্তী ক্যান্ডেল সিগন্যালটি ১০০% সফল ও নিশ্চিত হতে কত প্রাইসে বা লেভেলে ক্যান্ডেল ক্লোজ হওয়া পর্যন্ত অপেক্ষা করবেন:
-                                </h4>
+
                                 <div className="text-xl sm:text-2xl font-black leading-tight tracking-tight bg-black/60 border border-white/5 rounded-xl p-4 shadow-sm select-all">
                                   {result.entryTarget ? (
                                     <span className={
@@ -1692,59 +1722,17 @@ export default function App() {
                                     </span>
                                   )}
                                 </div>
-                                <div className="mt-4 pt-3 border-t border-gray-800/50 space-y-2.5">
-                                  <p className="text-[11.5px] text-gray-300 font-sans leading-relaxed flex items-start gap-1.5">
-                                    <span className="text-emerald-500 font-extrabold shrink-0">🟢</span>
-                                    <span>
-                                      <strong>কত উপরে ক্লোজ হলে UP এন্ট্রি নিবেন:</strong> ক্যান্ডেল টাইম শেষ হওয়ার পর ক্যান্ডেলের ক্লোজিং প্রাইস অবশ্যই আমাদের নির্দেশিত লেভেল{' '}
-                                      <strong className="text-emerald-400 underline decoration-emerald-500/30">
-                                        {result.entryTarget || "রেজিস্টেন্স বা পূর্ববর্তী ক্যান্ডেলের হাই"}
-                                      </strong>{' '}
-                                      এর <strong>ওপরে (কমপক্ষে ১-২ পয়েন্ট/পিপস ওপরে)</strong> ক্লোজ হতে হবে। তবেই পরবর্তী ক্যান্ডেলের শুরুতে নিশ্চিন্তে <strong>UP (Call)</strong> ট্রেড নিবেন।
-                                    </span>
-                                  </p>
-                                  <p className="text-[11.5px] text-gray-300 font-sans leading-relaxed flex items-start gap-1.5">
-                                    <span className="text-rose-500 font-extrabold shrink-0">🔴</span>
-                                    <span>
-                                      <strong>কত নিচে ক্লোজ হলে DOWN এন্ট্রি নিবেন:</strong> ক্যান্ডেল টাইম শেষ হওয়ার পর ক্যান্ডেলের ক্লোজিং প্রাইস অবশ্যই আমাদের নির্দেশিত লেভেল{' '}
-                                      <strong className="text-rose-400 underline decoration-rose-500/30">
-                                        {result.entryTarget || "সাপোর্ট বা পূর্ববর্তী ক্যান্ডেলের লো"}
-                                      </strong>{' '}
-                                      এর <strong>নিচে (কমপক্ষে ১-২ পয়েন্ট/পিপস নিচে)</strong> ক্লোজ হতে হবে। তবেই পরবর্তী ক্যান্ডেলের শুরুতে নিশ্চিন্তে <strong>DOWN (Put)</strong> ট্রেড নিবেন।
-                                    </span>
-                                  </p>
-                                  <p className="text-[10px] text-amber-500 italic font-sans leading-relaxed pl-3 border-l border-amber-500/20 mt-1">
-                                    * ক্যান্ডেল সম্পূর্ণ সময় শেষ হয়ে ক্লোজ হওয়ার পূর্বে কখনোই তাড়াহুড়ো করে বা রানিং ক্যান্ডেলে এন্ট্রি নিবেন না। লেভেল বা প্রাইস কনফার্মেশন নিশ্চিত করাই সবচেয়ে নিরাপদ ও লাভজনক কৌশল।
-                                  </p>
-                                </div>
-                              </div>
 
-                              {/* Loss Prevention Alert Box */}
-                              <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl space-y-2 mt-4">
-                                <div className="flex items-center gap-2 text-rose-400">
-                                  <AlertCircle className="w-4.5 h-4.5 shrink-0" />
-                                  <span className="text-[10px] uppercase tracking-wider font-extrabold font-mono text-rose-300">লস প্রতিরোধের মূল নির্দেশনাবলী (Loss Prevention Rules)</span>
-                                </div>
-                                <p className="text-xs text-gray-300 leading-relaxed font-sans">
-                                  ১. <strong className="text-rose-400 text-[13px]">কখনোই রানিং ক্যান্ডেল (Running Candle) এ এন্ট্রি নিবেন না!</strong> ক্যান্ডেল সম্পূর্ণ বন্ধ বা ক্লোজ হওয়ার কনফার্মেশন পাওয়ার পর তবেই ট্রেড বসাবেন।<br/>
-                                  ২. আমাদের এআই প্রযুক্তি এখন অত্যন্ত নিখুঁত এবং সাবধানী (Conservative)। যদি সিগন্যাল শতভাগ নিশ্চিত না হয়, এআই স্বয়ংক্রিয়ভাবে <strong className="text-amber-400 font-bold">NEUTRAL</strong> বা ওয়েট নোটিফিকেশন প্রদান করবে। কোনো ডিরেকশন ছাড়া রিস্কি এন্ট্রি এড়িয়ে চলুন।
-                                </p>
+
+
+
                               </div>
 
 
 
 
 
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-[#0c0d10] border border-gray-800 p-3 rounded text-center">
-                                  <span className="text-[9px] uppercase text-gray-600 block mb-1">Target Zone</span>
-                                  <span className="text-emerald-400 font-mono text-sm leading-none">AUTO_LOCKED</span>
-                                </div>
-                                <div className="bg-[#0c0d10] border border-gray-800 p-3 rounded text-center">
-                                  <span className="text-[9px] uppercase text-gray-600 block mb-1">Risk Factor</span>
-                                  <span className="text-rose-400 font-mono text-sm leading-none">MITIGATED</span>
-                                </div>
-                              </div>
+
 
                               {/* Profit/Loss Logging and Feedback System */}
                               <div className="p-4 bg-[#0a0b0d] border border-gray-800/80 rounded-xl space-y-3">
@@ -1843,12 +1831,14 @@ export default function App() {
                 </h1>
                 <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mt-1">Manage your analysis license and billing</p>
               </div>
-              <button 
-                onClick={() => setCurrentView('analysis')} 
-                className="px-4 py-2 hover:bg-white/5 border border-white/10 rounded-lg text-gray-400 hover:text-white transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-widest"
-              >
-                <ArrowLeft className="w-4 h-4" /> Back to App
-              </button>
+              {(isAdmin || !user || isUserSubscribed) && (
+                <button 
+                  onClick={() => setCurrentView('analysis')} 
+                  className="px-4 py-2 hover:bg-white/5 border border-white/10 rounded-lg text-gray-400 hover:text-white transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-widest"
+                >
+                  <ArrowLeft className="w-4 h-4" /> Back to App
+                </button>
+              )}
             </div>
 
             <div className="p-3 sm:p-8 grid grid-cols-1 md:grid-cols-12 gap-5 md:gap-8">
@@ -2378,7 +2368,7 @@ export default function App() {
                             onClick={() => handleBulkAction('REJECTED')}
                             className="px-4 py-1.5 bg-rose-500 text-white text-[10px] font-black uppercase tracking-widest rounded-md hover:bg-rose-400 transition-all"
                           >
-                            Reject All
+                            Reject & Unverify
                           </button>
                           <button onClick={() => setSelectedRequests([])} className="px-3 py-1.5 text-gray-500 hover:text-white text-[10px] font-bold uppercase transition-colors">Clear Selection</button>
                         </div>

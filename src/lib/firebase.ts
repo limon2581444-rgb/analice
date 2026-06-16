@@ -233,7 +233,7 @@ export const getAllUsersSnap = (callback: (users: any[]) => void) => {
   try {
     const q = query(collection(db, 'users'), orderBy('lastLogin', 'desc'));
     return onSnapshot(q, (snap) => {
-      const users = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const users = snap.docs.map(doc => ({ id: doc.id, uid: doc.id, ...doc.data() }));
       callback(users);
     }, (error) => {
       console.error("Fetch Users Error:", error);
