@@ -98,6 +98,9 @@ export default function App() {
   const [trc20Address, setTrc20Address] = useState("");
   const [adminTrc20Address, setAdminTrc20Address] = useState("");
   const [copiedTrc, setCopiedTrc] = useState(false);
+  const [bkashNumber, setBkashNumber] = useState("01568760651");
+  const [adminBkashNumber, setAdminBkashNumber] = useState("01568760651");
+  const [copiedBkash, setCopiedBkash] = useState(false);
 
   // Load global payment settings on mount
   useEffect(() => {
@@ -107,6 +110,8 @@ export default function App() {
         const data = docSnap.data();
         setTrc20Address(data.trc20Address || "");
         setAdminTrc20Address(data.trc20Address || "");
+        setBkashNumber(data.bkashNumber || "01568760651");
+        setAdminBkashNumber(data.bkashNumber || "01568760651");
       }
     }, (err) => {
       console.error("Error loaded settings:", err);
@@ -1974,7 +1979,10 @@ export default function App() {
                       ) : (
                         <div className="space-y-6">
                           {/* bKash Payment option */}
-                          <div className={`bg-[#e2125d]/5 border border-[#e2125d]/20 rounded-xl p-4 flex items-center justify-between transition-all ${paymentMethod === 'bkash' ? 'ring-1 ring-[#e2125d]/40 bg-[#e2125d]/8' : ''}`}>
+                          <div 
+                             onClick={() => setPaymentMethod('bkash')}
+                             className={`bg-[#e2125d]/5 border border-[#e2125d]/20 rounded-xl p-4 flex items-center justify-between transition-all cursor-pointer ${paymentMethod === 'bkash' ? 'ring-1 ring-[#e2125d]/40 bg-[#e2125d]/8' : ''}`}
+                          >
                              <div className="flex items-center gap-3">
                                <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center p-1.5 shadow-sm">
                                  <svg className="w-7 h-7 text-[#e2125d]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1991,7 +1999,8 @@ export default function App() {
                                </div>
                              </div>
                              <div className="text-right">
-                               <span className="text-xs font-bold text-rose-500 block">No bKash</span>
+                               <span className="text-xs font-mono font-bold text-rose-500 block">{bkashNumber}</span>
+                               <span className="text-[9px] text-gray-500 block">Personal</span>
                              </div>
                           </div>
 
@@ -2028,6 +2037,39 @@ export default function App() {
                               </button>
                             </div>
                           </div>
+
+                          {/* Dynamic bKash instructions and details box */}
+                          {paymentMethod === 'bkash' && (
+                            <div className="bg-[#131720]/90 border border-gray-800 rounded-2xl p-5 space-y-3.5 shadow-xl relative overflow-hidden animate-fade-in text-left">
+                              <div className="absolute top-0 left-0 w-1.5 h-full bg-[#e2125d]" />
+                              <div className="flex justify-between items-center pl-1">
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                                  bKash Personal Number
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-[#e2125d]/10 text-[9px] font-black text-[#e2125d] uppercase tracking-widest">Send Money</span>
+                              </div>
+                              
+                              <div className="flex items-center justify-between bg-[#0b0d12] border border-gray-800 rounded-xl p-3.5 group/addr hover:bg-[#0c0f16] hover:border-[#e2125d]/30 transition-all">
+                                <span className="text-xs sm:text-sm font-mono font-bold text-rose-400 break-all select-all pr-2">
+                                  {bkashNumber}
+                                </span>
+                                <button 
+                                  type="button"
+                                  onClick={() => { 
+                                    navigator.clipboard.writeText(bkashNumber); 
+                                    setCopiedBkash(true); 
+                                    setTimeout(() => setCopiedBkash(false), 2000); 
+                                  }} 
+                                  className="text-[9px] sm:text-[10px] text-gray-400 hover:text-rose-300 font-bold uppercase tracking-wider transition-all shrink-0 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10 active:scale-95"
+                                >
+                                  {copiedBkash ? 'Copied' : 'Copy'}
+                                </button>
+                              </div>
+                              <p className="text-[10px] text-gray-400 tracking-wide font-normal pl-1">
+                                এই বিকাশ নাম্বারে সেন্ড মানি করুন এবং আপনার সেন্ডার নাম্বার এবং ট্রানজেকশন ID নিচের বক্সে সাবমিট করুন।
+                              </p>
+                            </div>
+                          )}
 
                           {/* Pic 2: Empty box filled from admin panel, show & copy system */}
                           {paymentMethod === 'trc20' && (
@@ -2338,6 +2380,44 @@ export default function App() {
                         className="px-4 py-1.5 bg-blue-500 text-white hover:bg-blue-400 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(59,130,246,0.3)] shrink-0 active:scale-95"
                       >
                         Save Address
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* bKash Wallet Setting */}
+                  <div className="bg-[#141822] border-b border-gray-800 p-4 px-6 flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
+                    <div className="flex items-center gap-3">
+                      <CreditCard className="w-5 h-5 text-rose-500 shrink-0" />
+                      <div>
+                        <h4 className="text-xs font-bold text-white uppercase tracking-widest">bKash Personal Number</h4>
+                        <p className="text-[10px] text-gray-500 font-medium">This number is dynamically displayed on the user's payment screen.</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 max-w-sm sm:max-w-md w-full">
+                      <input 
+                        type="text"
+                        value={adminBkashNumber}
+                        onChange={(e) => setAdminBkashNumber(e.target.value)}
+                        placeholder="Enter bKash Number (e.g. 015...)"
+                        className="flex-1 bg-black/40 border border-gray-800 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-rose-500 text-white font-mono placeholder-gray-700"
+                      />
+                      <button
+                        onClick={async () => {
+                          setGlobalLoading(true);
+                          try {
+                            const configRef = doc(db, 'settings', 'payment');
+                            await setDoc(configRef, { bkashNumber: adminBkashNumber }, { merge: true });
+                            alert("bKash Personal Number updated in database successfully!");
+                          } catch (err: any) {
+                            console.error("Error setting bKash Number:", err);
+                            alert("Failed to save. Check firestore rules or connection.");
+                          } finally {
+                            setGlobalLoading(false);
+                          }
+                        }}
+                        className="px-4 py-1.5 bg-rose-500 text-white hover:bg-rose-400 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(244,63,94,0.3)] shrink-0 active:scale-95"
+                      >
+                        Save Number
                       </button>
                     </div>
                   </div>
