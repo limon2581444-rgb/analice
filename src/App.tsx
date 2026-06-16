@@ -1778,9 +1778,23 @@ export default function App() {
                             </motion.div>
                           ) : (
                             <div className="flex-1 flex flex-col items-center justify-center text-center space-y-4">
-                               <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center text-white/20">
-                                  <Terminal className="w-8 h-8" />
-                               </div>
+                               <button 
+                                 type="button"
+                                 onClick={startAnalysis}
+                                 className="w-16 h-16 rounded-full border border-emerald-500/30 overflow-hidden relative group/reload flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] bg-[#0b0d12]"
+                                 title="Reload & Start AI Analysis"
+                               >
+                                 {image ? (
+                                   <img 
+                                     src={image} 
+                                     alt="Uploaded preview" 
+                                     referrerPolicy="no-referrer"
+                                     className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover/reload:scale-110 group-hover/reload:opacity-40 transition-all duration-300"
+                                   />
+                                 ) : null}
+                                 <div className="absolute inset-0 bg-emerald-950/20 group-hover/reload:bg-emerald-950/40 transition-colors" />
+                                 <RefreshCw className="w-6 h-6 text-emerald-400 relative z-10 animate-[spin_8s_linear_infinite] group-hover/reload:text-emerald-300 transition-colors" />
+                               </button>
                                <div className="space-y-4">
                                   <div className="space-y-1">
                                      <p className="text-gray-500 uppercase tracking-widest text-xs font-bold italic">Awaiting analysis pulse</p>
