@@ -83,15 +83,16 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
     ANALYSIS GUIDELINES:
     1. Identify key candlestick patterns (e.g., Hammer, Engulfing, Doji).
     2. Detect current trend (Uptrend/Downtrend/Sideways).
-    3. Look for Support and Resistance levels directly above/below the current price.
-    4. Observe RSI, Volume, or EMA indicators if visible.
-    5. Include breakout strategy in your Bengali explanation: explain that if the price goes above this candle's top/high, go UP, and if it goes below this candle's bottom/low, go DOWN, indicating that waiting for such confirmations before entering a trade minimizes risk.
-    6. CRITICAL ENTRY REQUIREMENT: Identify the current price/level and explicitly state the exact level/condition the candle needs to close and what exact trade direction to take (UP or DOWN) to validate the setup securely. Mention both the closing target level and the trade direction (UP or DOWN) explicitly in Bengali so the user knows exactly which direction to trade.
-    7. ACCURACY & LOSS PREVENTION: To prevent users from losing trades, you must be extremely conservative. Unless you see an exceptionally strong, clean, and 90%+ reliable trend reversal or continuation pattern, default to "NEUTRAL" and advise standing aside. Boldly state that the user must NEVER enter on a running candle, and must wait for the actual candle close to avoid false breakouts.
-    8. 80%+ CONFIDENCE REQUIREMENT: You are STRICTLY forbidden from predicting "UP" or "DOWN" unless you are 80%+ certain. If the confidence in the technical setup is below 80, you MUST return "NEUTRAL" as the prediction.
+    3. STRICT REQUIREMENT on numeric levels: Locate and read the actual numerical values (e.g., "1.09240", "0.47898", "24610.5", etc.) shown on the Y-Axis (price scale) / grid lines of the chart screenshot.
+    4. NEVER give general rules like "above previous candle's high". Instead, you MUST use the exact detected numbers, for example: "১.০৯২৫০ এর ওপরে ক্লোজ হলে UP এবং ১.০৯২০০ এর নিচে ক্লোজ হলে DOWN এন্ট্রি নিন". Estimate the price level mathematically if it sits between grid levels.
+    5. Observe RSI, Volume, or EMA indicators if visible.
+    6. Include breakout strategy in your Bengali explanation: explain that if the price goes above the EXACT resistance value (state the exact price number in Bengali), go UP, and if it goes below the EXACT support value (state the exact price number in Bengali), go DOWN. Emphasize that waiting for such confirmations before entering a trade minimizes risk.
+    7. CRITICAL ENTRY REQUIREMENT: Identify the current price level and explicitly state the exact numerical price level the candle needs to close, and what exact trade direction to take (UP or DOWN) in Bengali.
+    8. ACCURACY & LOSS PREVENTION: To prevent users from losing trades, you must be extremely conservative. Unless you see an exceptionally strong, clean, and 90%+ reliable trend reversal or continuation pattern, default to "NEUTRAL" and advise standing aside. Boldly state that the user must NEVER enter on a running candle, and must wait for the actual candle close to avoid false breakouts.
+    9. 80%+ CONFIDENCE REQUIREMENT: You are STRICTLY forbidden from predicting "UP" or "DOWN" unless you are 80%+ certain. If the confidence in the technical setup is below 80, you MUST return "NEUTRAL" as the prediction.
     
     CRITICAL INSTRUCTION FOR THE EXPLANATION:
-    Your "explanation" field in the JSON should contain only high-quality, professional technical reasoning in Bengali, focusing on the chart patterns, support/resistance, indicators, and breakout strategy.
+    Your "explanation" field in the JSON should contain only high-quality, professional technical reasoning in Bengali, focusing on the chart patterns, support/resistance, indicators, and breakout strategy using the exact price numbers.
     Do NOT write any introductory sentences that repeat the predicted direction (e.g., do NOT start with "পরবর্তী ক্যান্ডেল সিগন্যাল:"), confidence level, or duplicate closing targets. Dive straight into analyzing the candlestick formations, market psychology, and specific market observation details.
 
 
