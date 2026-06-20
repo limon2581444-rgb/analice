@@ -1690,48 +1690,7 @@ export default function App() {
                                 </div>
                               </div>
 
-                              {/* Candle Closing Target Card (ক্যান্ডেল ক্লোজিং নির্দেশ) */}
-                              <div className={`p-5 rounded-xl border-2 border-dashed relative overflow-hidden transition-all duration-300 ${
-                                result.prediction === 'UP' ? 'bg-[#10b981]/5 border-[#10b981]/30 shadow-[0_0_15px_rgba(16,185,129,0.03)]' :
-                                result.prediction === 'DOWN' ? 'bg-[#f43f5e]/5 border-[#f43f5e]/30 shadow-[0_0_15px_rgba(244,63,94,0.03)]' :
-                                'bg-[#f59e0b]/5 border-[#f59e0b]/30'
-                              }`}>
-                                <div className={`absolute top-0 right-0 w-24 h-24 rounded-full blur-xl pointer-events-none opacity-20 ${
-                                  result.prediction === 'UP' ? 'bg-[#10b981]' :
-                                  result.prediction === 'DOWN' ? 'bg-[#f43f5e]' :
-                                  'bg-[#f59e0b]'
-                                }`} />
-                                
-                                <div className="text-xs text-gray-400 font-mono uppercase tracking-wider mb-2">
-                                  কনফার্মেশন লেভেল (CONFIRMATION LEVEL)
-                                </div>
 
-                                <div className="text-xl sm:text-2xl font-black leading-tight tracking-tight bg-black/60 border border-white/5 rounded-xl p-4 shadow-sm select-all">
-                                  {result.entryTarget ? (
-                                    <span className={
-                                      result.prediction === 'UP' ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.3)]' :
-                                      result.prediction === 'DOWN' ? 'text-rose-400 drop-shadow-[0_0_10px_rgba(244,63,94,0.3)]' :
-                                      'text-amber-400'
-                                    }>
-                                      {result.entryTarget}
-                                    </span>
-                                  ) : (
-                                    <span className="text-gray-300 font-bold">
-                                      {result.prediction === 'UP' ? (
-                                        "সবুজ ক্যান্ডেলটি রেজিস্টেন্স লেভেলের বা পূর্ববর্তী ক্যান্ডেলের টপের উপরে ক্লোজ হতে হবে।"
-                                      ) : result.prediction === 'DOWN' ? (
-                                        "লাল ক্যান্ডেলটি সাপোর্ট লেভেলের বা পূর্ববর্তী ক্যান্ডেলের বটমের নিচে ক্লোজ হতে হবে।"
-                                      ) : (
-                                        "মার্কেটের মুভমেন্ট ও ডিরেকশন নিশ্চিত নয়, অনুগ্রহ করে ব্রেকআউট হতে দিন।"
-                                      )}
-                                    </span>
-                                  )}
-                                </div>
-
-
-
-
-                              </div>
 
 
 
