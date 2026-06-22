@@ -76,6 +76,21 @@ async function startServer() {
         }
       }
       
+      let step = 0.00015;
+      if (decimals === 5) {
+        step = 0.00015;
+      } else if (decimals === 4) {
+        step = 0.0015;
+      } else if (decimals === 3) {
+        step = 0.015;
+      } else if (decimals === 2) {
+        step = 0.15;
+      } else {
+        step = sampleBase > 100 ? 5.0 : (sampleBase > 1 ? 0.015 : 0.00015);
+      }
+      
+      const upLevel = (sampleBase + step).toFixed(decimals);
+      const downLevel = (sampleBase - step).toFixed(decimals);
       const currentLevel = sampleBase.toFixed(decimals);
 
       const fallbacks = [
@@ -83,21 +98,21 @@ async function startServer() {
           prediction: "NEUTRAL" as const,
           confidence: 85,
           explanation: `মার্কেটটি বর্তমানে ${currentLevel} প্রাইস স্তরের কাছাকাছি সোজাসুজি অবস্থান করছে (Sideways Range)। বাড়তি সুরক্ষার জন্য এই ক্যান্ডেলটি ক্লোজ হওয়া পর্যন্ত অপেক্ষা করুন।`,
-          entryTarget: `${currentLevel} এর ওপরে ক্যান্ডেল ক্লোজ হলে নিশ্চিত UP এন্ট্রি নিন এবং ${currentLevel} এর নিচে ক্যান্ডেল ক্লোজ হলে নিশ্চিত DOWN এন্ট্রি নিন।`,
+          entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
           patterns: ["Hammer Pattern", "Sideways Range"]
         },
         {
           prediction: "UP" as const,
           confidence: 82,
           explanation: `চার্টে সর্বশেষ ক্যান্ডেলটি ${currentLevel} সাপোর্ট লেভেল থেকে রিজেকশন পেয়ে উপরে উঠছে। এর ফলে বাজারে বায়ারদের প্রাধান্য লক্ষ্য করা যাচ্ছে।`,
-          entryTarget: `${currentLevel} এর ওপরে ক্যান্ডেল ক্লোজ হলে নিশ্চিত UP এন্ট্রি নিন।`,
+          entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
           patterns: ["Bullish Candle", "Support Level Rejection"]
         },
         {
           prediction: "DOWN" as const,
           confidence: 81,
           explanation: `বাজারের বর্তমান ট্রেন্ড রেজিস্ট্যান্স জোনে বাধা পেয়ে ডাউন হয়ে গেছে। ${currentLevel} লেভেলের নিচে স্ট্রং প্রেসার লক্ষ্য করা যাচ্ছে।`,
-          entryTarget: `${currentLevel} এর নিচে ক্যান্ডেল ক্লোজ হলে নিশ্চিত DOWN এন্ট্রি নিন।`,
+          entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
           patterns: ["Bearish Pattern", "Resistance Replay"]
         }
       ];
@@ -132,13 +147,15 @@ async function startServer() {
         You are a professional trading chart analyst expert in candlestick patterns and market psychology.
         Analyze this trading chart screenshot and provide a high-probability technical prediction for the direction of the NEXT candle.
         ${finalUserPrompt ? `The user also provided this additional context/question: "${finalUserPrompt}"` : ""}
-        ${extractedPrice ? `The user explicitly confirmed that the CURRENT LIVE PRICE shown in this screenshot is "${extractedPrice}". You MUST formulate all your analyses, support/resistance breakouts, and UP/DOWN triggers precisely based on this exact live price level ("${extractedPrice}"). Do not misread or hallucinate this number.` : ""}
+        ${extractedPrice ? `The user explicitly confirmed that the CURRENT LIVE PRICE shown in this screenshot is "${extractedPrice}". You MUST formulate all your analyses, support/resistance breakouts, and UP/DOWN triggers precisely based on this exact live price level ("${extractedPrice}"). Do not misread, ignore, or hallucinate this number.` : ""}
         
         ANALYSIS GUIDELINES:
         1. Identify key candlestick patterns (e.g., Hammer, Engulfing, Doji).
         2. Detect current trend (Uptrend/Downtrend/Sideways).
-        3. DETECT THE LIVE ROUND NUMBER / MOVING PRICE VALUE: Locate the current fluctuating price level shown on the chart, usually enclosed in a solid colored highlighted badge/rectangle on the right margin/axis (e.g., "0.62467", "1.09250", etc.). You MUST find this exact number!
-        4. SPECIFIC PRICE RANGE TRIGGERS: Your Bengali suggestion in "entryTarget" MUST be extremely specific using that exact moving price (round number) for the threshold. It MUST specifically say: "[Exact Price] এর ওপরে ক্যান্ডেল ক্লোজ হলে UP এবং [Exact Price] এর নিচে ক্যান্ডেল ক্লোজ হলে DOWN এন্ট্রি নিন". Do not use general rules or placeholder numbers; fetch the actual number from the live round number badge visible on the screenshot.
+        3. DETECT THE LIVE ROUND NUMBER / MOVING PRICE VALUE: Locate the current fluctuating price level shown on the chart, usually enclosed in a solid colored highlighted badge/rectangle on the right margin/axis (e.g., "0.62467", "1.09250", "2.07497", etc.). You MUST find this exact number!
+        4. SPECIFIC PRICE RANGE TRIGGERS DIRECTLY FROM SCREENSHOT (DO NOT ADD OR SUBTRACT programmatically, do not perform arbitrary offset additions): Your Hinglish or Bangla-Bengali suggestion in "entryTarget" MUST follow this exact format precisely with the actual price levels from the screenshot (use digits, e.g., 2.0790 instead of writing them in words):
+           "যদি [Detected Lower/Support/RSI-break Level] এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার [Detected Upper/Resistance/RSI-break Level] এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।"
+           (For example: "যদি 2.0790 এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার 2.0805 এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।"). This format is extremely critical and explicitly requested by the user. Ensure the exact numbers detected on the chart boundaries are used rather than hardcoded ones. Do not use complex Bengali words for "close" or "candle"—write "close" and "candle" and "DOWN" and "UP" exactly as shown.
         5. Observe RSI, Volume, or EMA indicators if visible.
         6. Include breakout strategy in your Bengali explanation using the exact price numbers. Mention both the support and resistance numbers in Bengali.
         7. CRITICAL ENTRY REQUIREMENT: Identify the current price level and explicitly state the exact numerical price level the candle needs to close, and what exact trade direction to take (UP or DOWN) in Bengali.
@@ -151,14 +168,14 @@ async function startServer() {
 
 
         SPEED & CONCISENESS REQUIREMENT:
-        Keep the "explanation" extremely brief - write ONLY 1 to 2 short, concise, high-value technical observations in Bengali (maximum 35 words). Keep "entryTarget" under 30 Bengali words so that it is extraordinarily specific and explicitly contains the exact detected numerical levels for UP and DOWN triggers. Stating the exact numbers is the absolute highest priority!
+        Keep the "explanation" extremely brief - write ONLY 1 to 2 short, concise, high-value technical observations in Bengali (maximum 35 words). Keep "entryTarget" under 45 Bengali words so that it is extraordinarily specific and explicitly contains the exact detected numerical levels for BOTH UP and DOWN triggers. Stating both triggers with exact numbers is the absolute highest priority!
 
         CRITICAL: Respond ONLY in valid JSON format with the following structure:
         {
           "prediction": "UP" | "DOWN" | "NEUTRAL",
           "confidence": number (0 to 100),
           "explanation": "Detailed technical reasoning in Bengali (Bangla)",
-          "entryTarget": "কত প্রাইসে ক্লোজ হলে কোন ডিরেকশনে (UP নাকি DOWN) ট্রেড এন্ট্রি নিতে হবে তার স্পষ্ট, বড় এবং নির্দিষ্ট বাংলা নির্দেশনা (যেমন: '[Exact Price/Round Number] এর ওপরে ক্যান্ডেল ক্লোজ হলে নিশ্চিত UP এন্ট্রি নিন এবং [Exact Price/Round Number] এর নিচে ক্যান্ডেল ক্লোজ হলে নিশ্চিত DOWN এন্ট্রি নিন')",
+          "entryTarget": "যদি [DOWN Price Level] এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার [UP Price Level] এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।",
           "patterns": ["Pattern Name 1", "Pattern Name 2"]
         }
 
