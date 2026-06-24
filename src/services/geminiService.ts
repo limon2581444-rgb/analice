@@ -124,9 +124,9 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
   `;
 
   const modelsToTry = [
-    "gemini-3.1-flash-lite",
     "gemini-3.5-flash",
-    "gemini-flash-latest"
+    "gemini-flash-latest",
+    "gemini-3.1-flash-lite"
   ];
   
   let text = "";

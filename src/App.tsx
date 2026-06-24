@@ -1626,18 +1626,7 @@ export default function App() {
                                   </div>
                                 </div>
 
-                                {result.entryTarget && (
-                                  <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl space-y-1.5 relative overflow-hidden shadow-[0_0_20px_rgba(16,185,129,0.02)]">
-                                    <div className="absolute top-0 right-0 w-32 h-32 blur-2xl opacity-10 rounded-full bg-emerald-500" />
-                                    <div className="flex items-center gap-2 text-emerald-400">
-                                      <TrendingUp className="w-4 h-4 shrink-0" />
-                                      <span className="text-[10px] uppercase tracking-wider font-extrabold font-mono">লাইভ এন্ট্রি নির্দেশ (Entry Triggers)</span>
-                                    </div>
-                                    <p className="text-xs sm:text-sm font-bold text-gray-100 leading-relaxed font-sans whitespace-pre-wrap">
-                                      {result.entryTarget}
-                                    </p>
-                                  </div>
-                                )}
+
 
 
 
