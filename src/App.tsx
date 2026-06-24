@@ -758,10 +758,10 @@ export default function App() {
     try {
       const data = await analyzeChartImage(image, "image/png", userContext);
       
-      // Force neutral prediction if confidence is less than 80% to ensure 80%+ safety rule
-      if (data && data.confidence < 80 && (data.prediction === 'UP' || data.prediction === 'DOWN')) {
+      // Force neutral prediction if confidence is less than 65% to ensure safety rule
+      if (data && data.confidence < 65 && (data.prediction === 'UP' || data.prediction === 'DOWN')) {
         data.prediction = 'NEUTRAL';
-        data.entryTarget = 'এআই নিশ্চিত নয় (কনফিডেন্স ৮০% এর কম)। অতিরিক্ত সুরক্ষার জন্য কোনো ট্রেড এন্ট্রি নেওয়া যাবে না।';
+        data.entryTarget = 'এআই নিশ্চিত নয় (কনফিডেন্স ৬৫% এর কম)। অতিরিক্ত সুরক্ষার জন্য কোনো ট্রেড এন্ট্রি নেওয়া যাবে না।';
       }
       
       setResult(data);

@@ -159,8 +159,8 @@ async function startServer() {
         5. Observe RSI, Volume, or EMA indicators if visible.
         6. Include breakout strategy in your Bengali explanation using the exact price numbers. Mention both the support and resistance numbers in Bengali.
         7. CRITICAL ENTRY REQUIREMENT: Identify the current price level and explicitly state the exact numerical price level the candle needs to close, and what exact trade direction to take (UP or DOWN) in Bengali.
-        8. ACCURACY & LOSS PREVENTION: To prevent users from losing trades, you must be extremely conservative. Unless you see an exceptionally strong, clean, and 90%+ reliable trend reversal or continuation pattern, default to "NEUTRAL" and advise standing aside. Boldly state that the user must NEVER enter on a running candle, and must wait for the actual candle close to avoid false breakouts.
-        9. 80%+ CONFIDENCE REQUIREMENT: You are STRICTLY forbidden from predicting "UP" or "DOWN" unless you are 80%+ certain. If the confidence in the technical setup is below 80, you MUST return "NEUTRAL" as the prediction.
+        8. ACCURACY & HIGH-PROBABILITY PREDICTION: We want to provide clear, actionable trading signals (UP or DOWN) rather than defaulting to NEUTRAL. Identify the most probable next direction based on the visible indicators, candlestick formations, support/resistance, and trend breakout setups. Only use NEUTRAL if the chart is completely flat/unreadable or has no identifiable direction.
+        9. CONFIDENCE ESTIMATION: Assign a realistic confidence level between 65% and 95% based on your technical analysis. If you see standard, clean indicators or pattern confirmations, proceed with a confident UP or DOWN prediction. Avoid hesitating to predict a direction.
         
         CRITICAL INSTRUCTION FOR THE EXPLANATION:
         Your "explanation" field in the JSON should contain only high-quality, professional technical reasoning in Bengali, focusing on the chart patterns, support/resistance, indicators, and breakout strategy using the exact price numbers.
