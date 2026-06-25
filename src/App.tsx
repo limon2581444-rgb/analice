@@ -19,6 +19,7 @@ import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { playAnalysisReadySound, playMessageAlertSound, isSoundEnabled, setSoundEnabled } from './utils/audioAlerts';
 import { TrendAnalysisGraph } from './components/TrendAnalysisGraph';
 import { PredictionTrendChart } from './components/PredictionTrendChart';
+import { TradingTimer } from './components/TradingTimer';
 
 function cleanExplanation(text: string): string {
   if (!text) return "";
@@ -206,6 +207,10 @@ export default function App() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setUserData(data);
+        
+        if (data && data.recentAnalyses && Array.isArray(data.recentAnalyses) && data.recentAnalyses.length > 0) {
+          setRecentAnalyses(data.recentAnalyses);
+        }
         
         // Auto-expiration flow: If status is ACTIVE but expiresAt is in the past (Day 27reached), update Firestore
         if (data.subscriptionStatus === 'ACTIVE' && data.subscriptionExpiresAt) {
@@ -776,6 +781,12 @@ export default function App() {
           };
           const updated = [...prev, newAnalysis].slice(-5);
           localStorage.setItem('recent_analyses_v1', JSON.stringify(updated));
+          
+          if (user) {
+            const userRef = doc(db, 'users', user.uid);
+            updateDoc(userRef, { recentAnalyses: updated }).catch(e => console.error(e));
+          }
+          
           return updated;
         });
       }
@@ -1644,6 +1655,8 @@ export default function App() {
                                 )}
 
                                 <PredictionTrendChart recentAnalyses={recentAnalyses} />
+
+                                <TradingTimer />
 
                                 <div className="grid grid-cols-2 gap-2 pt-2">
                                   <button
