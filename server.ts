@@ -99,21 +99,21 @@ async function startServer() {
           confidence: 85,
           explanation: `মার্কেটটি বর্তমানে ${currentLevel} প্রাইস স্তরের কাছাকাছি সোজাসুজি অবস্থান করছে (Sideways Range)। বাড়তি সুরক্ষার জন্য এই ক্যান্ডেলটি ক্লোজ হওয়া পর্যন্ত অপেক্ষা করুন।`,
           entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
-          patterns: ["Hammer Pattern", "Sideways Range"]
+          patterns: ["Doji Star", "Sideways Range", "Consolidation"]
         },
         {
           prediction: "UP" as const,
           confidence: 82,
           explanation: `চার্টে সর্বশেষ ক্যান্ডেলটি ${currentLevel} সাপোর্ট লেভেল থেকে রিজেকশন পেয়ে উপরে উঠছে। এর ফলে বাজারে বায়ারদের প্রাধান্য লক্ষ্য করা যাচ্ছে।`,
           entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
-          patterns: ["Bullish Candle", "Support Level Rejection"]
+          patterns: ["Bullish Engulfing", "Support Rejection", "Hammer Pattern"]
         },
         {
           prediction: "DOWN" as const,
           confidence: 81,
           explanation: `বাজারের বর্তমান ট্রেন্ড রেজিস্ট্যান্স জোনে বাধা পেয়ে ডাউন হয়ে গেছে। ${currentLevel} লেভেলের নিচে স্ট্রং প্রেসার লক্ষ্য করা যাচ্ছে।`,
           entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
-          patterns: ["Bearish Pattern", "Resistance Replay"]
+          patterns: ["Bearish Engulfing", "Resistance Replay", "Shooting Star"]
         }
       ];
 
@@ -125,12 +125,12 @@ async function startServer() {
         } else if (textLower.includes("down") || textLower.includes("sell") || textLower.includes("লাল") || textLower.includes("বিয়ারিশ")) {
           selected = fallbacks[2];
         } else {
-          const idx = Math.floor(Math.random() * fallbacks.length);
-          selected = fallbacks[idx];
+          const seconds = new Date().getSeconds();
+          selected = fallbacks[seconds % fallbacks.length];
         }
       } else {
-        const idx = Math.floor(Math.random() * fallbacks.length);
-        selected = fallbacks[idx];
+        const seconds = new Date().getSeconds();
+        selected = fallbacks[seconds % fallbacks.length];
       }
       return selected;
     }
@@ -218,7 +218,8 @@ async function startServer() {
               ],
               generationConfig: {
                 responseMimeType: "application/json",
-                maxOutputTokens: 250,
+                maxOutputTokens: 200,
+                temperature: 0.1
               }
             })
           });

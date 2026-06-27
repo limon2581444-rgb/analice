@@ -1,19 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Timer, Play, Pause, RotateCcw, Volume2, VolumeX, Flame } from 'lucide-react';
 
-export const TradingTimer: React.FC = () => {
-  const [duration, setDuration] = useState<number>(60); // default 60s (1 min)
-  const [timeLeft, setTimeLeft] = useState<number>(60);
-  const [isRunning, setIsRunning] = useState<boolean>(false);
+interface TradingTimerProps {
+  autoStart?: boolean;
+  defaultDuration?: number; // in seconds
+}
+
+export const TradingTimer: React.FC<TradingTimerProps> = ({ 
+  autoStart = true, 
+  defaultDuration = 60 // Strictly 1 minute (60 seconds)
+}) => {
+  const [duration, setDuration] = useState<number>(defaultDuration);
+  const [timeLeft, setTimeLeft] = useState<number>(defaultDuration);
+  const [isRunning, setIsRunning] = useState<boolean>(autoStart);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Quick preset buttons
+  // Strictly 1m fixed
   const presets = [
-    { label: '১ মিনিট (1m)', value: 60 },
-    { label: '২ মিনিট (2m)', value: 120 },
-    { label: '৩ মিনিট (3m)', value: 180 },
-    { label: '৫ মিনিট (5m)', value: 300 }
+    { label: '১ মিনিট (1m) ফিক্সড', value: 60 }
   ];
 
   // Sound generator
@@ -118,38 +123,25 @@ export const TradingTimer: React.FC = () => {
         </button>
       </div>
 
-      {/* Main Countdown & Quick Presets Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 items-center">
-        {/* Preset list on left */}
-        <div className="sm:col-span-6 flex flex-wrap sm:grid sm:grid-cols-2 gap-1.5 order-2 sm:order-1">
-          {presets.map((p) => {
-            const isSelected = duration === p.value;
-            return (
-              <button
-                key={p.value}
-                onClick={() => selectPreset(p.value)}
-                className={`flex-1 sm:flex-initial text-[10px] font-black py-1.5 px-2 rounded-lg transition-all text-center border font-mono uppercase cursor-pointer ${
-                  isSelected
-                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.1)]'
-                    : 'bg-[#101115]/80 border-gray-800/60 text-gray-400 hover:text-gray-200 hover:bg-[#181921]'
-                }`}
-              >
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
+      {/* Centered Countdown Display and Controls */}
+      <div className="flex flex-col items-center justify-center p-4 bg-[#0b0c10]/90 border border-gray-850 rounded-xl relative overflow-hidden">
+        {/* Progress bar background indicator */}
+        <div 
+          className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-1000 rounded-b-xl"
+          style={{ width: `${percentage}%` }}
+        />
 
-        {/* Display and Controls on right */}
-        <div className="sm:col-span-6 flex flex-col items-center justify-center p-2.5 bg-[#0b0c10] border border-gray-850 rounded-xl relative order-1 sm:order-2">
-          {/* Progress bar background indicator */}
-          <div 
-            className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-1000 rounded-b-xl"
-            style={{ width: `${percentage}%` }}
-          />
+        <div className="flex flex-col sm:flex-row items-center gap-4 w-full justify-between px-2 z-10">
+          {/* Left: Info badge */}
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-extrabold uppercase font-mono tracking-wider rounded-lg">
+              ১ মিনিট (1m) ফিক্সড ট্রেড
+            </span>
+          </div>
 
-          <div className="flex items-center gap-3">
-            <span className={`text-2xl font-black font-mono tracking-widest ${
+          {/* Center: Timer digits */}
+          <div className="flex items-center gap-4">
+            <span className={`text-3xl font-black font-mono tracking-widest leading-none ${
               timeLeft <= 5 && isRunning 
                 ? 'text-rose-500 animate-pulse' 
                 : timeLeft <= 10 && isRunning 
@@ -159,32 +151,35 @@ export const TradingTimer: React.FC = () => {
               {formatTime(timeLeft)}
             </span>
             
+            {/* Right: Actions */}
             <div className="flex gap-1.5">
               <button
                 onClick={handleStartPause}
-                className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                className={`p-2 rounded-lg transition-all cursor-pointer ${
                   isRunning 
                     ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20' 
                     : 'bg-emerald-500 hover:bg-emerald-400 text-black border border-transparent'
                 }`}
+                title={isRunning ? 'Pause' : 'Start'}
               >
-                {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                {isRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
               </button>
               <button
                 onClick={handleReset}
-                className="p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition-colors cursor-pointer border border-white/5"
+                className="p-2 bg-gray-800 hover:bg-gray-750 text-gray-300 rounded-lg transition-colors cursor-pointer border border-white/5"
+                title="Reset"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
+                <RotateCcw className="w-4 h-4" />
               </button>
             </div>
           </div>
-          
-          {timeLeft <= 5 && isRunning && (
-            <div className="flex items-center gap-1 mt-1 text-[8px] text-rose-500 font-extrabold uppercase font-mono tracking-widest">
-              <Flame className="w-3 h-3 animate-bounce" /> Expiration Alert!
-            </div>
-          )}
         </div>
+        
+        {timeLeft <= 5 && isRunning && (
+          <div className="flex items-center gap-1 mt-2.5 text-[9px] text-rose-500 font-extrabold uppercase font-mono tracking-widest animate-pulse z-10">
+            <Flame className="w-3.5 h-3.5 animate-bounce" /> Expiration Alert!
+          </div>
+        )}
       </div>
     </div>
   );

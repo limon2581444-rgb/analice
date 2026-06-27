@@ -160,7 +160,8 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
           ],
           generationConfig: {
             responseMimeType: "application/json",
-            maxOutputTokens: 250,
+            maxOutputTokens: 200,
+            temperature: 0.1
           }
         })
       });

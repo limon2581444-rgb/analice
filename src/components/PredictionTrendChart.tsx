@@ -52,9 +52,9 @@ export const PredictionTrendChart: React.FC<PredictionTrendChartProps> = ({ rece
           <p className="text-xs font-black mt-1 flex items-center gap-1">
             সিগন্যাল: 
             {data.prediction === 'UP' ? (
-              <span className="text-emerald-400 flex items-center gap-0.5"><TrendingUp className="w-3.5 h-3.5" /> BUY / UP</span>
+              <span className="text-emerald-400 flex items-center gap-0.5"><TrendingUp className="w-3.5 h-3.5" /> UP</span>
             ) : data.prediction === 'DOWN' ? (
-              <span className="text-rose-400 flex items-center gap-0.5"><TrendingDown className="w-3.5 h-3.5" /> SELL / DOWN</span>
+              <span className="text-rose-400 flex items-center gap-0.5"><TrendingDown className="w-3.5 h-3.5" /> DOWN</span>
             ) : (
               <span className="text-amber-400">NEUTRAL</span>
             )}
