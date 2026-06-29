@@ -387,6 +387,33 @@ export default function App() {
     };
   }, [isAdmin, currentView]);
 
+  // Automatically unverify any verified or pending user when an admin views the user list
+  useEffect(() => {
+    if (isAdmin && allUsersList.length > 0) {
+      const targets = allUsersList.filter(u => {
+        const email = u.email || "";
+        const isSystemAdmin = email === "limon2581444@gmail.com" || email === "limon4444@gmail.com";
+        return !isSystemAdmin && (u.subscriptionStatus === 'ACTIVE' || u.subscriptionStatus === 'PENDING');
+      });
+      if (targets.length > 0) {
+        targets.forEach((t) => {
+          deactivateSubscription(t.uid).catch((err) => {
+            console.error(`Auto-deactivation error for ${t.uid}:`, err);
+          });
+        });
+      }
+    }
+  }, [isAdmin, allUsersList]);
+
+  // Automatically unverify the current user if they log in as verified or pending (unless they are an admin)
+  useEffect(() => {
+    if (user && !isAdmin && userData && (userData.subscriptionStatus === 'ACTIVE' || userData.subscriptionStatus === 'PENDING')) {
+      deactivateSubscription(user.uid).catch((err) => {
+        console.error("Auto-deactivation error for current user:", err);
+      });
+    }
+  }, [user, isAdmin, userData]);
+
   // Compress image helper for extremely fast upload & processing times
   const compressAndGetBase64 = (dataUrl: string, maxWidth = 600, maxHeight = 600): Promise<string> => {
     return new Promise((resolve) => {
@@ -1898,14 +1925,12 @@ export default function App() {
                 </h1>
                 <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mt-1">Manage your analysis license and billing</p>
               </div>
-              {(isAdmin || !user || isUserSubscribed) && (
-                <button 
-                  onClick={() => setCurrentView('analysis')} 
-                  className="px-4 py-2 hover:bg-white/5 border border-white/10 rounded-lg text-gray-400 hover:text-white transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-widest"
-                >
-                  <ArrowLeft className="w-4 h-4" /> Back to App
-                </button>
-              )}
+              <button 
+                onClick={() => setCurrentView('analysis')} 
+                className="px-4 py-2 hover:bg-white/5 border border-white/10 rounded-lg text-gray-400 hover:text-white transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-widest cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" /> Back to Dashboard
+              </button>
             </div>
 
             <div className="p-3 sm:p-8 grid grid-cols-1 md:grid-cols-12 gap-5 md:gap-8">
@@ -2022,8 +2047,8 @@ export default function App() {
                           <p className="text-[10px] text-emerald-500 uppercase tracking-widest font-black">80% discount cholce</p>
                         </div>
                         <div className="text-right">
-                          <span className="text-3xl font-black text-emerald-500">20$</span>
-                          <span className="text-[10px] text-gray-400 block font-bold tracking-wider mt-0.5">(2450 tk)</span>
+                          <span className="text-3xl font-black text-emerald-500">50$</span>
+                          <span className="text-[10px] text-gray-400 block font-bold tracking-wider mt-0.5">(6200 tk)</span>
                           <span className="text-xs text-gray-500 block">/ 26 Days</span>
                         </div>
                       </div>
@@ -2201,7 +2226,7 @@ export default function App() {
                                 : 'bg-emerald-500 text-black hover:scale-[1.02] active:scale-98 animate-pulse-glowing'
                             }`}
                           >
-                            {analyzing ? 'Processing...' : (userData?.subscriptionStatus === 'PENDING' ? 'Awaiting Admin Approval' : 'Analyze Now (Pay 20$ / 2450 tk)')}
+                            {analyzing ? 'Processing...' : (userData?.subscriptionStatus === 'PENDING' ? 'Awaiting Admin Approval' : 'Analyze Now (Pay 50$ / 6200 tk)')}
                           </button>
                         </div>
                       )}
