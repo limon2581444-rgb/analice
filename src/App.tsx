@@ -387,32 +387,7 @@ export default function App() {
     };
   }, [isAdmin, currentView]);
 
-  // Automatically unverify any verified or pending user when an admin views the user list
-  useEffect(() => {
-    if (isAdmin && allUsersList.length > 0) {
-      const targets = allUsersList.filter(u => {
-        const email = u.email || "";
-        const isSystemAdmin = email === "limon2581444@gmail.com" || email === "limon4444@gmail.com";
-        return !isSystemAdmin && (u.subscriptionStatus === 'ACTIVE' || u.subscriptionStatus === 'PENDING');
-      });
-      if (targets.length > 0) {
-        targets.forEach((t) => {
-          deactivateSubscription(t.uid).catch((err) => {
-            console.error(`Auto-deactivation error for ${t.uid}:`, err);
-          });
-        });
-      }
-    }
-  }, [isAdmin, allUsersList]);
 
-  // Automatically unverify the current user if they log in as verified or pending (unless they are an admin)
-  useEffect(() => {
-    if (user && !isAdmin && userData && (userData.subscriptionStatus === 'ACTIVE' || userData.subscriptionStatus === 'PENDING')) {
-      deactivateSubscription(user.uid).catch((err) => {
-        console.error("Auto-deactivation error for current user:", err);
-      });
-    }
-  }, [user, isAdmin, userData]);
 
   // Compress image helper for extremely fast upload & processing times
   const compressAndGetBase64 = (dataUrl: string, maxWidth = 600, maxHeight = 600): Promise<string> => {
