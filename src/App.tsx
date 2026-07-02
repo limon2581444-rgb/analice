@@ -33,76 +33,249 @@ function RainEffect() {
     width: string;
     opacity: number;
     colorClass: string;
-    blur: string;
+    glowClass: string;
+    dotColor: string;
+  }[]>([]);
+
+  const [splashes, setSplashes] = useState<{
+    id: number;
+    left: number;
+    bottom: number;
+    delay: number;
+    scale: number;
+    colorClass: string;
+    glowClass: string;
   }[]>([]);
   
   useEffect(() => {
-    const totalDrops = 95;
+    const totalDrops = 110;
     const generatedDrops = Array.from({ length: totalDrops }, (_, i) => {
       const rand = Math.random();
-      let width = "1px";
-      let height = 12 + Math.random() * 12;
-      let duration = 0.7 + Math.random() * 0.8;
-      let opacity = 0.2 + Math.random() * 0.35;
-      let colorClass = "from-sky-500/40 to-indigo-500/10";
-      let blur = "none";
+      let width = "1.2px";
+      let height = 15 + Math.random() * 15;
+      let duration = 1.8 + Math.random() * 1.6;
+      let opacity = 0.25 + Math.random() * 0.45;
+      
+      let colorClass = "from-cyan-400 to-transparent";
+      let glowClass = "glow-drop-cyan";
+      let dotColor = "bg-cyan-400";
 
-      if (rand > 0.85) {
-        // Foreground - fast, glowing, slightly thicker
-        width = "2px";
-        height = 25 + Math.random() * 15;
-        duration = 0.5 + Math.random() * 0.3;
-        opacity = 0.45 + Math.random() * 0.25;
-        colorClass = "from-emerald-400/50 to-cyan-500/20";
-        blur = "blur-[0.5px]";
-      } else if (rand > 0.5) {
-        // Midground - medium, cyan themed
-        width = "1.2px";
-        height = 18 + Math.random() * 10;
-        duration = 0.8 + Math.random() * 0.5;
-        opacity = 0.3 + Math.random() * 0.2;
-        colorClass = "from-cyan-400/40 to-sky-500/15";
+      if (rand > 0.65) {
+        // Bullish green trading candle stream
+        width = "1.5px";
+        height = 18 + Math.random() * 18;
+        duration = 1.5 + Math.random() * 1.2;
+        opacity = 0.35 + Math.random() * 0.45;
+        colorClass = "from-emerald-400 via-emerald-500/50 to-transparent";
+        glowClass = "glow-drop-emerald";
+        dotColor = "bg-emerald-400";
+      } else if (rand > 0.35) {
+        // Bearish red trading candle stream
+        width = "1.5px";
+        height = 18 + Math.random() * 18;
+        duration = 1.6 + Math.random() * 1.3;
+        opacity = 0.3 + Math.random() * 0.4;
+        colorClass = "from-rose-400 via-rose-500/50 to-transparent";
+        glowClass = "glow-drop-rose";
+        dotColor = "bg-rose-500";
       } else {
-        // Background - slow, thin, soft sky blue
-        width = "0.8px";
-        height = 10 + Math.random() * 8;
-        duration = 1.2 + Math.random() * 0.7;
-        opacity = 0.15 + Math.random() * 0.15;
-        colorClass = "from-sky-300/30 to-blue-500/5";
+        // High-speed cyber cyan streams
+        width = "1px";
+        height = 12 + Math.random() * 12;
+        duration = 2.0 + Math.random() * 1.8;
+        opacity = 0.2 + Math.random() * 0.3;
+        colorClass = "from-cyan-400/80 via-blue-500/30 to-transparent";
+        glowClass = "glow-drop-cyan";
+        dotColor = "bg-cyan-300";
       }
 
       return {
         id: i,
         left: Math.random() * 100,
-        delay: Math.random() * -6,
+        delay: Math.random() * -7,
         duration,
         height,
         width,
         opacity,
         colorClass,
-        blur,
+        glowClass,
+        dotColor,
       };
     });
     setDrops(generatedDrops);
+
+    // Generate beautiful splash rings on the landing zone (puddle surface)
+    const totalSplashes = 25;
+    const generatedSplashes = Array.from({ length: totalSplashes }, (_, i) => {
+      const randType = Math.random();
+      let colorClass = "border-cyan-400/50";
+      let glowClass = "shadow-[0_0_8px_rgba(34,211,238,0.3)]";
+      if (randType > 0.65) {
+        colorClass = "border-emerald-400/50";
+        glowClass = "shadow-[0_0_8px_rgba(52,211,153,0.3)]";
+      } else if (randType > 0.35) {
+        colorClass = "border-rose-400/50";
+        glowClass = "shadow-[0_0_8px_rgba(251,113,133,0.3)]";
+      }
+      return {
+        id: i,
+        left: 2 + Math.random() * 96,
+        bottom: 4 + Math.random() * 12,
+        delay: Math.random() * -4,
+        scale: 0.5 + Math.random() * 0.9,
+        colorClass,
+        glowClass,
+      };
+    });
+    setSplashes(generatedSplashes);
   }, []);
 
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+      {/* Falling unique trading neon rain drops */}
       {drops.map((drop) => (
         <div
           key={drop.id}
-          className={`absolute bg-gradient-to-b ${drop.colorClass} animate-rain-drop ${drop.blur}`}
+          className={`absolute bg-gradient-to-b ${drop.colorClass} ${drop.glowClass} animate-rain-drop flex flex-col items-center`}
           style={{
             left: `${drop.left}%`,
-            top: `-40px`,
+            top: `-50px`,
             width: drop.width,
             height: `${drop.height}px`,
             animationDelay: `${drop.delay}s`,
             animationDuration: `${drop.duration}s`,
             opacity: drop.opacity,
           }}
+        >
+          {/* Glowing candle tip */}
+          <div className={`w-[3px] h-[3px] rounded-full shrink-0 ${drop.dotColor} absolute bottom-0 shadow-[0_0_8px_rgba(255,255,255,1)]`} />
+        </div>
+      ))}
+
+      {/* Cybernetic Landing Splash Rings */}
+      {splashes.map((splash) => (
+        <div
+          key={`splash-${splash.id}`}
+          className={`absolute rounded-full border-t-2 border-x ${splash.colorClass} ${splash.glowClass} animate-splash`}
+          style={{
+            left: `${splash.left}%`,
+            bottom: `${splash.bottom}px`,
+            width: "18px",
+            height: "7px",
+            animationDelay: `${splash.delay}s`,
+            transform: `scale(${splash.scale})`,
+          }}
         />
       ))}
+
+      {/* Cyberpunk Silhouette Couple Proposal */}
+      <div className="absolute bottom-2 left-4 sm:left-12 md:left-24 lg:left-32 xl:left-40 z-10 pointer-events-none select-none transition-all duration-500">
+        <svg viewBox="0 0 160 130" className="w-28 h-23 sm:w-36 sm:h-29 md:w-44 md:h-36 filter drop-shadow-[0_0_12px_rgba(34,211,238,0.25)]">
+          {/* Cybernetic Glowing Umbrella */}
+          <path 
+            d="M 15 48 Q 80 12 145 48 Q 80 38 15 48 Z" 
+            fill="rgba(6, 182, 212, 0.15)" 
+            stroke="#22d3ee" 
+            strokeWidth="2.5" 
+            className="animate-pulse"
+          />
+          {/* Umbrella center pin */}
+          <line x1="80" y1="28" x2="80" y2="12" stroke="#22d3ee" strokeWidth="2.5" />
+          
+          {/* Umbrella pole with cyber glow */}
+          <path 
+            d="M 80 34 L 80 102 Q 77 106 72 104" 
+            fill="none" 
+            stroke="#22d3ee" 
+            strokeWidth="1.8" 
+          />
+          
+          {/* Standing Girl (on the right, facing left) */}
+          <g className="fill-[#08090b] stroke-[#10b981]/30 stroke-[0.8px]">
+            {/* Girl Head */}
+            <circle cx="106" cy="58" r="6.5" fill="#08090b" className="stroke-[#22d3ee]/30" />
+            
+            {/* Girl ponytail */}
+            <path d="M 111 55 Q 120 54 117 64 Q 112 62 109 59" fill="#08090b" />
+            
+            {/* Girl Body/Dress */}
+            <path d="M 101 66 C 97 74, 94 92, 91 106 L 118 106 C 114 93, 112 74, 107 66 Z" fill="#08090b" />
+            
+            {/* Surprised hands (touching face/chest) */}
+            <path d="M 101 67 Q 95 65 96 61" fill="none" stroke="#08090b" strokeWidth="2.5" strokeLinecap="round" />
+            
+            {/* Legs */}
+            <line x1="97" y1="106" x2="96" y2="123" stroke="#08090b" strokeWidth="2.5" strokeLinecap="round" />
+            <line x1="107" y1="106" x2="108" y2="123" stroke="#08090b" strokeWidth="2.5" strokeLinecap="round" />
+          </g>
+          
+          {/* Kneeling Boy (on the left, facing right) */}
+          <g className="fill-[#08090b] stroke-[#f43f5e]/30 stroke-[0.8px]">
+            {/* Boy Head */}
+            <circle cx="56" cy="74" r="6.5" fill="#08090b" className="stroke-[#f43f5e]/30" />
+            {/* Boy spiky hair */}
+            <path d="M 50 71 Q 54 66 58 71" fill="#08090b" />
+            
+            {/* Boy torso & legs in kneeling pose */}
+            <path d="M 54 82 Q 46 94 48 102 C 40 102, 34 112, 38 123 L 56 123 C 58 116, 52 108, 54 102 C 60 103, 64 112, 66 123 L 73 123 C 71 114, 62 102, 57 82 Z" fill="#08090b" />
+            
+            {/* Proposing Arm reaching forward */}
+            <path d="M 57 82 Q 74 81 77 81" fill="none" stroke="#08090b" strokeWidth="2.8" strokeLinecap="round" />
+            
+            {/* Other Arm holding the umbrella pole */}
+            <path d="M 54 82 Q 72 84 80 84" fill="none" stroke="#08090b" strokeWidth="2.2" strokeLinecap="round" />
+          </g>
+
+          {/* Red Rose held by the boy with bright glowing neon red head */}
+          <line x1="77" y1="81" x2="82" y2="76" stroke="#10b981" strokeWidth="1" />
+          <circle cx="82" cy="76" r="3.5" fill="#f43f5e" className="animate-pulse" style={{ filter: "drop-shadow(0 0 6px #f43f5e)" }} />
+
+          {/* Glowing Cyber Hearts Floating Up between them */}
+          <g className="fill-[#f43f5e]">
+            {/* Heart 1 */}
+            <path 
+              d="M 83 58 C 80 54, 75 58, 83 65 C 91 58, 86 54, 83 58" 
+              className="animate-pulse" 
+              style={{ 
+                animationDelay: '0.2s', 
+                animationDuration: '2.5s',
+                transformOrigin: '83px 61px',
+                filter: "drop-shadow(0 0 4px #f43f5e)",
+                opacity: 0.85
+              }} 
+            />
+            {/* Heart 2 */}
+            <path 
+              d="M 92 46 C 90 42, 85 45, 92 51 C 99 45, 94 42, 92 46" 
+              className="animate-pulse" 
+              style={{ 
+                animationDelay: '1s', 
+                animationDuration: '3s',
+                transformOrigin: '92px 48px',
+                filter: "drop-shadow(0 0 5px #f43f5e)",
+                opacity: 0.7
+              }} 
+            />
+          </g>
+
+          {/* Little splashing rain drops landing on top of the umbrella canopy */}
+          <circle cx="48" cy="24" r="1.5" fill="#22d3ee" className="animate-ping opacity-60" style={{ animationDuration: '1.2s' }} />
+          <circle cx="80" cy="14" r="1.5" fill="#22d3ee" className="animate-ping opacity-70" style={{ animationDuration: '0.9s' }} />
+          <circle cx="112" cy="24" r="1.5" fill="#22d3ee" className="animate-ping opacity-60" style={{ animationDuration: '1.4s' }} />
+        </svg>
+
+        {/* Small beautiful label under them (Bengali/English romantic micro tagline) */}
+        <div className="text-center mt-1">
+          <p className="text-[7px] font-mono tracking-[0.25em] text-cyan-400/50 uppercase select-none font-bold">CYBER ROMANCE v1.0</p>
+        </div>
+      </div>
+
+      {/* Accumulated neon-glowing water puddle layer at the bottom */}
+      <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-cyan-950/40 via-cyan-900/10 to-transparent border-t border-cyan-500/20 backdrop-blur-[1px] shadow-[0_-6px_20px_rgba(6,182,212,0.12)]">
+        {/* Animated surface reflections inside puddle */}
+        <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/5 via-cyan-500/10 to-rose-500/5 opacity-50 animate-pulse" />
+        <div className="absolute bottom-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-emerald-400/40 via-cyan-400/50 to-rose-400/40" />
+      </div>
     </div>
   );
 }
