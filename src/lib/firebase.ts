@@ -122,11 +122,11 @@ export const activateSubscription = async (uid: string) => {
       expiresAt.setDate(expiresAt.getDate() + 26);
     }
 
-    return await updateDoc(ref, {
+    return await setDoc(ref, {
       subscriptionStatus: 'ACTIVE',
       subscriptionExpiresAt: expiresAt,
       verifiedAt: serverTimestamp(),
-    });
+    }, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -136,11 +136,11 @@ export const deactivateSubscription = async (uid: string) => {
   const path = `users/${uid}`;
   try {
     const ref = doc(db, 'users', uid);
-    return await updateDoc(ref, {
+    return await setDoc(ref, {
       subscriptionStatus: 'NONE',
       subscriptionExpiresAt: null,
       verifiedAt: null,
-    });
+    }, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -152,7 +152,7 @@ export const submitPaymentRequest = async (userId: string, senderNumber: string,
   try {
     // Update user status to PENDING
     const userRef = doc(db, 'users', userId);
-    await updateDoc(userRef, { subscriptionStatus: 'PENDING' });
+    await setDoc(userRef, { subscriptionStatus: 'PENDING' }, { merge: true });
 
     return await addDoc(collection(db, 'payment_requests'), {
       userId,

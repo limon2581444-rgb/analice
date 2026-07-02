@@ -20,6 +20,98 @@ import { playAnalysisReadySound, playMessageAlertSound, isSoundEnabled, setSound
 import { TrendAnalysisGraph } from './components/TrendAnalysisGraph';
 import { PredictionTrendChart } from './components/PredictionTrendChart';
 import { TradingTimer } from './components/TradingTimer';
+// @ts-ignore
+import tradeLensLogo from './assets/images/tradelens_logo_1783032357643.jpg';
+
+function RainEffect() {
+  const [drops, setDrops] = useState<{
+    id: number;
+    left: number;
+    delay: number;
+    duration: number;
+    height: number;
+    width: string;
+    opacity: number;
+    colorClass: string;
+    blur: string;
+  }[]>([]);
+  
+  useEffect(() => {
+    const totalDrops = 95;
+    const generatedDrops = Array.from({ length: totalDrops }, (_, i) => {
+      const rand = Math.random();
+      let width = "1px";
+      let height = 12 + Math.random() * 12;
+      let duration = 0.7 + Math.random() * 0.8;
+      let opacity = 0.2 + Math.random() * 0.35;
+      let colorClass = "from-sky-500/40 to-indigo-500/10";
+      let blur = "none";
+
+      if (rand > 0.85) {
+        // Foreground - fast, glowing, slightly thicker
+        width = "2px";
+        height = 25 + Math.random() * 15;
+        duration = 0.5 + Math.random() * 0.3;
+        opacity = 0.45 + Math.random() * 0.25;
+        colorClass = "from-emerald-400/50 to-cyan-500/20";
+        blur = "blur-[0.5px]";
+      } else if (rand > 0.5) {
+        // Midground - medium, cyan themed
+        width = "1.2px";
+        height = 18 + Math.random() * 10;
+        duration = 0.8 + Math.random() * 0.5;
+        opacity = 0.3 + Math.random() * 0.2;
+        colorClass = "from-cyan-400/40 to-sky-500/15";
+      } else {
+        // Background - slow, thin, soft sky blue
+        width = "0.8px";
+        height = 10 + Math.random() * 8;
+        duration = 1.2 + Math.random() * 0.7;
+        opacity = 0.15 + Math.random() * 0.15;
+        colorClass = "from-sky-300/30 to-blue-500/5";
+      }
+
+      return {
+        id: i,
+        left: Math.random() * 100,
+        delay: Math.random() * -6,
+        duration,
+        height,
+        width,
+        opacity,
+        colorClass,
+        blur,
+      };
+    });
+    setDrops(generatedDrops);
+  }, []);
+
+  return (
+    <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+      {drops.map((drop) => (
+        <div
+          key={drop.id}
+          className={`absolute bg-gradient-to-b ${drop.colorClass} animate-rain-drop ${drop.blur}`}
+          style={{
+            left: `${drop.left}%`,
+            top: `-40px`,
+            width: drop.width,
+            height: `${drop.height}px`,
+            animationDelay: `${drop.delay}s`,
+            animationDuration: `${drop.duration}s`,
+            opacity: drop.opacity,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function LightningEffect() {
+  return (
+    <div className="absolute inset-0 pointer-events-none overflow-hidden z-0 bg-transparent animate-lightning-flash" />
+  );
+}
 
 function cleanExplanation(text: string): string {
   if (!text) return "";
@@ -526,7 +618,7 @@ export default function App() {
         if (status === 'VERIFIED') {
           await activateSubscription(req.userId);
         } else {
-          await updateDoc(userRef, { subscriptionStatus: 'NONE' });
+          await setDoc(userRef, { subscriptionStatus: 'NONE' }, { merge: true });
         }
       }));
 
@@ -971,7 +1063,7 @@ export default function App() {
       } else {
         // If rejected, set status back to NONE so they can try again
         const userRef = doc(db, 'users', userId);
-        await updateDoc(userRef, { subscriptionStatus: 'NONE' });
+        await setDoc(userRef, { subscriptionStatus: 'NONE' }, { merge: true });
       }
       const reqs = await getPaymentRequests();
       setPaymentRequests(reqs);
@@ -984,24 +1076,20 @@ export default function App() {
   };
 
   const handleToggleUserVerification = async (uid: string, currentStatus: string, isCurrentlyExpired?: boolean) => {
-    if (!confirm(`আপনি কি এই ইউজারের ভেরিফিকেশন স্ট্যাটাস পরিবর্তন করতে চান?`)) return;
     setGlobalLoading(true);
     try {
-      if (isCurrentlyExpired) {
-        await activateSubscription(uid);
-      } else if (currentStatus === 'ACTIVE') {
-        const ref = doc(db, 'users', uid);
-        await updateDoc(ref, {
-          subscriptionStatus: 'NONE',
-          subscriptionExpiresAt: null,
-          verifiedAt: null
-        });
+      const isVerified = currentStatus === 'ACTIVE' && !isCurrentlyExpired;
+      
+      if (isVerified) {
+        // Toggle to unverified state (deactivate)
+        await deactivateSubscription(uid);
       } else {
+        // Toggle to verified state (activate)
         await activateSubscription(uid);
       }
     } catch (err: any) {
       console.error(err);
-      alert("ইউজার সাবস্ক্রিপশন স্ট্যাটাস পরিবর্তন করতে সমস্যা হয়েছে: " + (err.message || ""));
+      alert("ইউজার ভেরিফিকেশন স্ট্যাটাস পরিবর্তন করতে সমস্যা হয়েছে: " + (err.message || ""));
     } finally {
       setGlobalLoading(false);
     }
@@ -1116,15 +1204,23 @@ export default function App() {
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-white uppercase tracking-wider">{user.displayName || 'Trident User'}</span>
                     {userData?.subscriptionStatus === 'ACTIVE' ? (
-                      <div className="flex items-center gap-1 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/20 text-[8px] font-bold text-emerald-400 uppercase tracking-wider">
+                      <button
+                        onClick={() => isAdmin && handleToggleUserVerification(user.uid, userData?.subscriptionStatus || 'NONE', false)}
+                        className={`flex items-center gap-1 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/20 text-[8px] font-bold text-emerald-400 uppercase tracking-wider transition-all ${isAdmin ? 'hover:bg-rose-500 hover:text-white cursor-pointer active:scale-95' : ''}`}
+                        title={isAdmin ? 'ভেরিফিকেশন স্ট্যাটাস পরিবর্তন করতে ক্লিক করুন' : undefined}
+                      >
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                         Verified
-                      </div>
+                      </button>
                     ) : (
-                      <div className="flex items-center gap-1 bg-rose-500/10 px-2.5 py-0.5 rounded-md border border-rose-500/20 text-[8px] font-bold text-rose-400 uppercase tracking-wider animate-pulse-glowing">
+                      <button
+                        onClick={() => isAdmin && handleToggleUserVerification(user.uid, userData?.subscriptionStatus || 'NONE', false)}
+                        className={`flex items-center gap-1 bg-rose-500/10 px-2.5 py-0.5 rounded-md border border-rose-500/20 text-[8px] font-bold text-rose-400 uppercase tracking-wider animate-pulse-glowing transition-all ${isAdmin ? 'hover:bg-emerald-500 hover:text-black cursor-pointer active:scale-95' : ''}`}
+                        title={isAdmin ? 'ভেরিফাই করতে ক্লিক করুন' : undefined}
+                      >
                         <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                         Unverified
-                      </div>
+                      </button>
                     )}
                   </div>
                   <span className="text-[9px] text-gray-500 truncate max-w-[120px]">{user.email}</span>
@@ -1504,7 +1600,13 @@ export default function App() {
         </aside>
 
         {/* Main Work Area */}
-        <div className="flex-1 bg-[#050607] relative p-2 sm:p-4 md:p-8 flex items-center justify-center overflow-auto">
+        <div className="flex-1 bg-[#050607] bg-trading-grid relative p-2 sm:p-4 md:p-8 flex items-center justify-center overflow-auto">
+          {/* Background Rain & Lightning FX */}
+          <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+            <LightningEffect />
+            <RainEffect />
+          </div>
+
           <AnimatePresence mode="wait">
             {!image ? (
               <motion.div
@@ -1512,15 +1614,36 @@ export default function App() {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 1.05 }}
-                className="w-full max-w-2xl"
+                className="w-full max-w-2xl relative z-10"
               >
-                <label className="group relative h-96 flex flex-col items-center justify-center border border-emerald-500/10 rounded-2xl bg-[#0a0b0d] hover:bg-[#0c0d10] transition-all cursor-pointer overflow-hidden p-8 text-center shadow-2xl">
-                  <input type="file" className="hidden" onChange={handleFileUpload} accept="image/*" />
-                  <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_#10b981_0%,_transparent_70%)]" />
-                  <Upload className="w-12 h-12 text-emerald-500 mb-6 group-hover:scale-110 transition-transform" />
-                  <div className="space-y-2">
-                    <h2 className="text-2xl font-bold text-white tracking-tight text-center uppercase">Analysis Target Required</h2>
-                    <p className="text-gray-500 uppercase tracking-widest text-[10px] font-bold text-center">Chart screenshot আপলোড করুন অথবা কপি করা থাকলে পেস্ট (Ctrl+V) করুন</p>
+                <label className="group relative h-96 flex flex-col items-center justify-center border border-emerald-500/20 rounded-2xl bg-[#090b0e]/90 backdrop-blur-md hover:border-emerald-500/40 hover:bg-[#0c0f14]/95 transition-all duration-500 cursor-pointer overflow-hidden p-8 text-center shadow-[0_0_50px_rgba(16,185,129,0.05)] hover:shadow-[0_0_60px_rgba(16,185,129,0.12)]">
+                   <input type="file" className="hidden" onChange={handleFileUpload} accept="image/*" />
+                   <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle_at_center,_#10b981_0%,_transparent_75%)] group-hover:opacity-25 transition-opacity duration-500" />
+                   
+                   {/* Neon HUD Corner decorations */}
+                   <div className="absolute top-3 left-3 w-4 h-4 border-t-2 border-l-2 border-emerald-500/30 group-hover:border-emerald-400 transition-colors" />
+                   <div className="absolute top-3 right-3 w-4 h-4 border-t-2 border-r-2 border-emerald-500/30 group-hover:border-emerald-400 transition-colors" />
+                   <div className="absolute bottom-3 left-3 w-4 h-4 border-b-2 border-l-2 border-emerald-500/30 group-hover:border-emerald-400 transition-colors" />
+                   <div className="absolute bottom-3 right-3 w-4 h-4 border-b-2 border-r-2 border-emerald-500/30 group-hover:border-emerald-400 transition-colors" />
+
+                   {/* Pulsing Outer Ring */}
+                   <div className="relative mb-6">
+                     <div className="absolute inset-0 rounded-full bg-emerald-500/10 blur-md group-hover:scale-125 transition-transform duration-500 animate-pulse" />
+                     <img 
+                       src={tradeLensLogo} 
+                       alt="TradeLens Logo" 
+                       className="relative w-28 h-28 rounded-full border-2 border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.25)] group-hover:scale-105 group-hover:border-emerald-400/60 transition-all duration-500" 
+                       referrerPolicy="no-referrer" 
+                     />
+                   </div>
+
+                  <div className="space-y-3 relative z-10">
+                    <h2 className="text-2xl font-black text-white tracking-wider text-center uppercase bg-gradient-to-r from-white via-emerald-100 to-white bg-clip-text">Analysis Target Required</h2>
+                    <p className="text-emerald-400/80 uppercase tracking-widest text-[11px] font-black text-center flex items-center justify-center gap-2">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                      Chart screenshot আপলোড করুন অথবা কপি করা থাকলে পেস্ট করুন
+                    </p>
+                    <p className="text-gray-500 text-[10px] uppercase font-bold tracking-widest mt-2">(Ctrl+V বা ক্লিক করুন)</p>
                   </div>
                 </label>
                 
@@ -1542,7 +1665,7 @@ export default function App() {
                 key="analysis"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="w-full h-full flex flex-col items-center justify-center p-0 sm:p-4 min-h-0"
+                className="w-full h-full flex flex-col items-center justify-center p-0 sm:p-4 min-h-0 relative z-10"
               >
                 <div 
                   ref={analysisBoxRef}
@@ -1886,11 +2009,17 @@ export default function App() {
 
        {/* Subscription Management View */}
       {currentView === 'payment' && (
-        <div className="absolute inset-0 z-50 bg-[#08090a] flex items-center justify-center p-4 overflow-auto custom-scrollbar">
+        <div className="absolute inset-0 z-50 bg-[#08090a] bg-trading-grid flex items-center justify-center p-4 overflow-auto custom-scrollbar relative">
+          {/* Background Rain & Lightning FX */}
+          <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+            <LightningEffect />
+            <RainEffect />
+          </div>
+
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-4xl bg-[#151a22] rounded-2xl border border-white/5 shadow-2xl relative overflow-hidden"
+            className="w-full max-w-4xl bg-[#151a22] rounded-2xl border border-white/5 shadow-2xl relative overflow-hidden z-10"
           >
             {/* Header */}
             <div className="p-6 border-b border-white/5 flex justify-between items-center bg-black/20">
@@ -2932,9 +3061,13 @@ export default function App() {
                                 <td className="px-6 py-4">
                                   {isVerified ? (
                                     <div className="space-y-1">
-                                      <span className="inline-flex items-center gap-1 text-[9px] font-black bg-emerald-500/20 text-emerald-500 border border-emerald-500/40 px-2 py-0.5 rounded uppercase tracking-wider">
+                                      <button
+                                        onClick={() => handleToggleUserVerification(u.uid, u.subscriptionStatus, false)}
+                                        className="inline-flex items-center gap-1 text-[9px] font-black bg-emerald-500/20 text-emerald-500 border border-emerald-500/40 px-2 py-0.5 rounded uppercase tracking-wider cursor-pointer hover:bg-rose-500 hover:text-white transition-all active:scale-95"
+                                        title="আনভেরিফাই করতে ক্লিক করুন"
+                                      >
                                         🟢 Verified
-                                      </span>
+                                      </button>
                                       <div className="text-[11px] text-emerald-400 font-bold">
                                         {relativeDaysStr}
                                       </div>
@@ -2962,11 +3095,15 @@ export default function App() {
                                       </button>
                                     </div>
                                   ) : u.subscriptionStatus === 'PENDING' ? (
-                                    <div>
-                                      <span className="inline-flex items-center gap-1 text-[9px] font-black bg-amber-500/20 text-amber-500 border border-amber-500/40 px-2 py-0.5 rounded uppercase tracking-wider">
+                                    <div className="space-y-1">
+                                      <button
+                                        onClick={() => handleToggleUserVerification(u.uid, u.subscriptionStatus, false)}
+                                        className="inline-flex items-center gap-1 text-[9px] font-black bg-amber-500/20 text-amber-500 border border-amber-500/40 px-2 py-0.5 rounded uppercase tracking-wider cursor-pointer hover:bg-emerald-500 hover:text-black transition-all active:scale-95"
+                                        title="ভেরিফাই করতে ক্লিক করুন"
+                                      >
                                         🟡 Pending Verification
-                                      </span>
-                                      <div className="text-[11px] text-gray-400 font-bold mt-1">পেমেন্ট রিকোয়েস্ট পেন্ডিং</div>
+                                      </button>
+                                      <div className="text-[11px] text-gray-400 font-bold">পেমেন্ট রিকোয়েস্ট পেন্ডিং</div>
                                     </div>
                                   ) : (
                                     <div className="space-y-1">

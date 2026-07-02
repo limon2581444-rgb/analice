@@ -88,7 +88,7 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
       allow list: if isAdmin();
-      allow create: if isOwner(userId) && isValidId(userId);
+      allow create: if (isOwner(userId) || isAdmin()) && isValidId(userId);
       allow update: if isOwner(userId) || isAdmin();
 
       // --- Analyses Subcollection ---
