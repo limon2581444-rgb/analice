@@ -113,6 +113,43 @@ function LightningEffect() {
   );
 }
 
+function FloatingParticles() {
+  const [particles, setParticles] = useState<{ id: number; left: number; top: number; size: number; duration: number; delay: number; opacity: number }[]>([]);
+
+  useEffect(() => {
+    const initialParticles = Array.from({ length: 30 }, (_, i) => ({
+      id: i,
+      left: Math.random() * 100,
+      top: Math.random() * 100,
+      size: 1.5 + Math.random() * 2.5,
+      duration: 5 + Math.random() * 7,
+      delay: Math.random() * -10,
+      opacity: 0.12 + Math.random() * 0.28,
+    }));
+    setParticles(initialParticles);
+  }, []);
+
+  return (
+    <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+      {particles.map((p) => (
+        <div
+          key={p.id}
+          className="absolute rounded-full bg-gradient-to-tr from-emerald-500 to-cyan-400 blur-[0.5px]"
+          style={{
+            left: `${p.left}%`,
+            top: `${p.top}%`,
+            width: `${p.size}px`,
+            height: `${p.size}px`,
+            opacity: p.opacity,
+            animation: `float ${p.duration}s ease-in-out infinite`,
+            animationDelay: `${p.delay}s`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function cleanExplanation(text: string): string {
   if (!text) return "";
   let cleaned = text;
@@ -1605,6 +1642,7 @@ export default function App() {
           <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
             <LightningEffect />
             <RainEffect />
+            <FloatingParticles />
           </div>
 
           <AnimatePresence mode="wait">
@@ -1620,6 +1658,9 @@ export default function App() {
                    <input type="file" className="hidden" onChange={handleFileUpload} accept="image/*" />
                    <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle_at_center,_#10b981_0%,_transparent_75%)] group-hover:opacity-25 transition-opacity duration-500" />
                    
+                   {/* Moving Scanner Laser bar */}
+                   <div className="absolute inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-500 to-transparent top-0 animate-scan pointer-events-none z-0" />
+
                    {/* Neon HUD Corner decorations */}
                    <div className="absolute top-3 left-3 w-4 h-4 border-t-2 border-l-2 border-emerald-500/30 group-hover:border-emerald-400 transition-colors" />
                    <div className="absolute top-3 right-3 w-4 h-4 border-t-2 border-r-2 border-emerald-500/30 group-hover:border-emerald-400 transition-colors" />
