@@ -14,7 +14,7 @@ import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, Mes
 import { analyzeChartImage, AnalysisResult } from './services/geminiService';
 import { toPng } from 'html-to-image';
 import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap, saveTradeLog, getTradeLogsSnap, clearTradeLogs } from './lib/firebase';
-import { doc, setDoc, serverTimestamp, getDoc, onSnapshot, collection, query, where, orderBy, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, getDoc, onSnapshot, collection, query, where, orderBy, updateDoc, getDocs, runTransaction } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { playAnalysisReadySound, playMessageAlertSound, isSoundEnabled, setSoundEnabled } from './utils/audioAlerts';
 import { TrendAnalysisGraph } from './components/TrendAnalysisGraph';
@@ -420,8 +420,8 @@ export default function App() {
   const [trc20Address, setTrc20Address] = useState("");
   const [adminTrc20Address, setAdminTrc20Address] = useState("");
   const [copiedTrc, setCopiedTrc] = useState(false);
-  const [bkashNumber, setBkashNumber] = useState("01568760651");
-  const [adminBkashNumber, setAdminBkashNumber] = useState("01568760651");
+  const [bkashNumber, setBkashNumber] = useState("1236032255");
+  const [adminBkashNumber, setAdminBkashNumber] = useState("1236032255");
   const [copiedBkash, setCopiedBkash] = useState(false);
 
   // Load global payment settings on mount
@@ -432,8 +432,8 @@ export default function App() {
         const data = docSnap.data();
         setTrc20Address(data.trc20Address || "");
         setAdminTrc20Address(data.trc20Address || "");
-        setBkashNumber(data.bkashNumber || "01568760651");
-        setAdminBkashNumber(data.bkashNumber || "01568760651");
+        setBkashNumber(data.bkashNumber || "1236032255");
+        setAdminBkashNumber(data.bkashNumber || "1236032255");
       }
     }, (err) => {
       console.error("Error loaded settings:", err);
@@ -457,6 +457,20 @@ export default function App() {
           setIsAdmin(ad);
         }
 
+        if (ad) {
+          const configRef = doc(db, 'settings', 'payment');
+          getDoc(configRef).then((configSnap) => {
+            if (configSnap.exists()) {
+              const data = configSnap.data();
+              if (data.bkashNumber !== '1236032255') {
+                updateDoc(configRef, { bkashNumber: '1236032255' }).catch(err => console.error("Error auto-updating bkash config:", err));
+              }
+            } else {
+              setDoc(configRef, { bkashNumber: '1236032255', trc20Address: 'TPAXoRZNjyn9XqwtmkV9xaTAzyeqEW2Hxy' }).catch(err => console.error("Error auto-setting bkash config:", err));
+            }
+          }).catch(err => console.error("Error loading config during admin check:", err));
+        }
+
         // One-time Sync user to Firestore
         const userPath = `users/${currentUser.uid}`;
         const userRef = doc(db, userPath);
@@ -464,6 +478,26 @@ export default function App() {
         try {
           const userSnap = await getDoc(userRef);
           if (!userSnap.exists()) {
+            // Count existing users to assign next serial (starting from 100) using a safe transaction
+            let userSerial = 100;
+            try {
+              const counterRef = doc(db, 'settings', 'users_counter');
+              userSerial = await runTransaction(db, async (transaction) => {
+                const counterSnap = await transaction.get(counterRef);
+                if (!counterSnap.exists()) {
+                  transaction.set(counterRef, { counter: 100 });
+                  return 100;
+                } else {
+                  const nextCounter = (counterSnap.data().counter || 99) + 1;
+                  transaction.update(counterRef, { counter: nextCounter });
+                  return nextCounter;
+                }
+              });
+            } catch (e) {
+              console.error("Error transaction-assigning serial, using random fallback:", e);
+              userSerial = 100 + Math.floor(Math.random() * 1000);
+            }
+
             await setDoc(userRef, {
               uid: currentUser.uid,
               email: currentUser.email || "",
@@ -473,12 +507,33 @@ export default function App() {
               createdAt: serverTimestamp(),
               freeUsageCount: 0,
               subscriptionStatus: 'NONE',
+              userSerial: userSerial,
             });
           } else {
-            // Only update fields that might have changed to stay within rule constraints
-            const updatePayload: any = {
+            const currentData = userSnap.data();
+            let updatePayload: any = {
               lastLogin: serverTimestamp(),
             };
+            if (!currentData.userSerial) {
+              try {
+                const counterRef = doc(db, 'settings', 'users_counter');
+                const userSerial = await runTransaction(db, async (transaction) => {
+                  const counterSnap = await transaction.get(counterRef);
+                  if (!counterSnap.exists()) {
+                    transaction.set(counterRef, { counter: 100 });
+                    return 100;
+                  } else {
+                    const nextCounter = (counterSnap.data().counter || 99) + 1;
+                    transaction.update(counterRef, { counter: nextCounter });
+                    return nextCounter;
+                  }
+                });
+                updatePayload.userSerial = userSerial;
+              } catch (e) {
+                console.error("Error updating userSerial with transaction, using random fallback:", e);
+                updatePayload.userSerial = 100 + Math.floor(Math.random() * 1000);
+              }
+            }
             if (currentUser.displayName) updatePayload.displayName = currentUser.displayName;
             if (currentUser.photoURL) updatePayload.photoURL = currentUser.photoURL;
             
@@ -509,6 +564,14 @@ export default function App() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setUserData(data);
+        
+        if (data) {
+          if (data.customDisplayName) {
+            setCustomUserName(data.customDisplayName);
+          } else if (data.displayName) {
+            setCustomUserName(data.displayName);
+          }
+        }
         
         if (data && data.recentAnalyses && Array.isArray(data.recentAnalyses) && data.recentAnalyses.length > 0) {
           setRecentAnalyses(data.recentAnalyses);
@@ -1189,6 +1252,7 @@ export default function App() {
   const [adminPass, setAdminPass] = useState("");
   const [senderNumber, setSenderNumber] = useState("");
   const [trxId, setTrxId] = useState("");
+  const [customUserName, setCustomUserName] = useState("");
   const [countdown, setCountdown] = useState("05:00");
 
   useEffect(() => {
@@ -1412,7 +1476,10 @@ export default function App() {
               <div className="flex items-center gap-1.5 md:gap-3">
                 <div className="flex flex-col items-end">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-white uppercase tracking-wider">{user.displayName || 'Trident User'}</span>
+                    <span className="text-[10px] font-bold text-white uppercase tracking-wider">
+                      {userData?.customDisplayName || userData?.displayName || user.displayName || 'Trident User'}
+                      {userData?.userSerial && ` #${userData.userSerial}`}
+                    </span>
                     {userData?.subscriptionStatus === 'ACTIVE' ? (
                       <button
                         onClick={() => isAdmin && handleToggleUserVerification(user.uid, userData?.subscriptionStatus || 'NONE', false)}
@@ -2510,6 +2577,58 @@ export default function App() {
                             </div>
                           )}
 
+                          {/* Name Input Box and User Serial ID Indicator */}
+                          <div className="bg-[#131720]/50 border border-gray-800/80 rounded-2xl p-5 space-y-3.5 shadow-xl text-left font-sans animate-fade-in relative overflow-hidden">
+                            <div className="absolute top-0 right-0 px-3 py-1 bg-gradient-to-l from-emerald-500/10 to-transparent border-b border-l border-emerald-500/20 rounded-bl-xl">
+                              <span className="text-[9px] font-mono font-black text-emerald-400 tracking-wider">
+                                USER NO: {userData?.userSerial || 'Allocating...'}
+                              </span>
+                            </div>
+                            
+                            <div className="space-y-1.5">
+                              <label className="text-[10px] text-gray-400 uppercase tracking-widest font-black flex items-center gap-2">
+                                <User className="w-3.5 h-3.5 text-emerald-500" />
+                                Your Name / আপনার নাম
+                              </label>
+                              <div className="flex gap-2">
+                                <input 
+                                  type="text" 
+                                  value={customUserName}
+                                  onChange={(e) => setCustomUserName(e.target.value)}
+                                  placeholder="Type your name here..."
+                                  className="flex-1 bg-white/5 border border-white/10 rounded-lg p-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors text-white font-bold"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (!user) return;
+                                    if (!customUserName.trim()) {
+                                      alert("দয়া করে একটি নাম লিখুন!");
+                                      return;
+                                    }
+                                    setGlobalLoading(true);
+                                    try {
+                                      const userRef = doc(db, 'users', user.uid);
+                                      await setDoc(userRef, { customDisplayName: customUserName.trim() }, { merge: true });
+                                      alert("আপনার নাম সফলভাবে সংরক্ষণ করা হয়েছে!");
+                                    } catch (err) {
+                                      console.error(err);
+                                      alert("নাম সংরক্ষণ করতে সমস্যা হয়েছে।");
+                                    } finally {
+                                      setGlobalLoading(false);
+                                    }
+                                  }}
+                                  className="px-4 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-[10px] uppercase tracking-wider rounded-lg transition-all shadow-[0_0_12px_rgba(16,185,129,0.35)] active:scale-95"
+                                >
+                                  Save Name
+                                </button>
+                              </div>
+                              <p className="text-[9px] text-gray-500 italic pl-1 mt-1">
+                                আপনার নামের পাশে আপনার অটো-ইনক্রিমেন্ট আইডি নম্বর <span className="text-emerald-400 font-mono font-bold">#{userData?.userSerial || '100+'}</span> সচল থাকবে।
+                              </p>
+                            </div>
+                          </div>
+
                           <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1.5 text-left font-sans">
                               <label className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">
@@ -3139,10 +3258,11 @@ export default function App() {
                       ফলফলাফল: {
                         allUsersList.filter(u => {
                           const queryStr = (userSearchQuery || "").toLowerCase();
-                          const nameMatch = (u.displayName || "").toLowerCase().includes(queryStr);
+                          const nameMatch = (u.customDisplayName || u.displayName || "").toLowerCase().includes(queryStr);
                           const emailMatch = (u.email || "").toLowerCase().includes(queryStr);
                           const uidMatch = (u.uid || "").toLowerCase().includes(queryStr);
-                          const matchesSearch = nameMatch || emailMatch || uidMatch;
+                          const serialMatch = String(u.userSerial || "").includes(queryStr);
+                          const matchesSearch = nameMatch || emailMatch || uidMatch || serialMatch;
                           if (!matchesSearch) return false;
 
                           const isExpired = u.subscriptionStatus === 'ACTIVE' && u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date();
@@ -3174,10 +3294,11 @@ export default function App() {
                         {(() => {
                           const queryStr = (userSearchQuery || "").toLowerCase();
                           const filtered = allUsersList.filter(u => {
-                            const nameMatch = (u.displayName || "").toLowerCase().includes(queryStr);
+                            const nameMatch = (u.customDisplayName || u.displayName || "").toLowerCase().includes(queryStr);
                             const emailMatch = (u.email || "").toLowerCase().includes(queryStr);
                             const uidMatch = (u.uid || "").toLowerCase().includes(queryStr);
-                            const matchesSearch = nameMatch || emailMatch || uidMatch;
+                            const serialMatch = String(u.userSerial || "").includes(queryStr);
+                            const matchesSearch = nameMatch || emailMatch || uidMatch || serialMatch;
                             if (!matchesSearch) return false;
 
                             const isExpired = u.subscriptionStatus === 'ACTIVE' && u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date();
@@ -3260,7 +3381,10 @@ export default function App() {
                                       </div>
                                     )}
                                     <div className="flex flex-col">
-                                      <span className="text-sm font-bold text-gray-200">{u.displayName || 'Unnamed User'}</span>
+                                      <span className="text-sm font-bold text-gray-200">
+                                        {u.customDisplayName || u.displayName || 'Unnamed User'}
+                                        {u.userSerial && <span className="text-emerald-400 font-mono text-xs ml-1.5 font-bold">#{u.userSerial}</span>}
+                                      </span>
                                       <span className="text-[10px] text-gray-500 font-mono font-bold">{u.email}</span>
                                       <span className="text-[9px] text-gray-600 font-mono">UID: {u.uid}</span>
                                     </div>
@@ -3382,7 +3506,17 @@ export default function App() {
                             }`}
                           >
                             <div className="flex items-center justify-between w-full">
-                              <span className="text-[10px] font-black text-gray-200 truncate max-w-[140px] uppercase tracking-tighter">{u.userEmail}</span>
+                              <span className="text-[10px] font-black text-gray-200 truncate max-w-[140px] uppercase tracking-tighter">
+                                {(() => {
+                                  const uDetails = allUsersList.find((usr: any) => usr.uid === u.userId);
+                                  return (
+                                    <>
+                                      {uDetails?.customDisplayName || uDetails?.displayName || u.userEmail}
+                                      {uDetails?.userSerial && <span className="text-emerald-400 font-mono ml-1">#{uDetails.userSerial}</span>}
+                                    </>
+                                  );
+                                })()}
+                              </span>
                               {u.unreadCount > 0 && (
                                 <span className="bg-rose-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full">{u.unreadCount}</span>
                               )}
@@ -3411,7 +3545,17 @@ export default function App() {
                              </button>
                              <div className="flex flex-col">
                                <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest italic">Conversation with</span>
-                               <span className="text-sm font-bold text-gray-200">{userList.find(u => u.userId === adminChatUser)?.userEmail}</span>
+                               <span className="text-sm font-bold text-gray-200">
+                                 {(() => {
+                                   const uDetails = allUsersList.find((usr: any) => usr.uid === adminChatUser);
+                                   return (
+                                     <>
+                                       {uDetails?.customDisplayName || uDetails?.displayName || userList.find(u => u.userId === adminChatUser)?.userEmail}
+                                       {uDetails?.userSerial && <span className="text-emerald-400 font-mono text-xs ml-1.5 font-bold">#{uDetails.userSerial}</span>}
+                                     </>
+                                   );
+                                 })()}
+                               </span>
                              </div>
                            </div>
                            <div className="text-[8px] text-gray-600 uppercase font-black tracking-widest">ID: {adminChatUser}</div>

@@ -14,7 +14,9 @@
         "freeUsageCount": { "type": "integer", "minimum": 0, "maximum": 3 },
         "subscriptionStatus": { "type": "string", "enum": ["NONE", "PENDING", "ACTIVE"] },
         "subscriptionExpiresAt": { "type": "string", "format": "date-time" },
-        "verifiedAt": { "type": "string", "format": "date-time" }
+        "verifiedAt": { "type": "string", "format": "date-time" },
+        "userSerial": { "type": "integer", "minimum": 100 },
+        "customDisplayName": { "type": "string" }
       },
       "required": ["uid", "email"]
     },
@@ -72,6 +74,15 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "prediction", "outcome", "timestamp"]
+    },
+    "counter": {
+      "title": "Users Counter",
+      "description": "Sequential auto-increment user counter document",
+      "type": "object",
+      "properties": {
+        "counter": { "type": "integer", "minimum": 100 }
+      },
+      "required": ["counter"]
     }
   },
   "firestore": {
@@ -90,6 +101,10 @@
     "/payment_requests/{requestId}": {
       "schema": "paymentRequest",
       "description": "Global collection for admin to verify payments"
+    },
+    "/settings/users_counter": {
+      "schema": "counter",
+      "description": "Sequential user auto-increment counter document"
     },
     "/support_messages/{messageId}": {
       "schema": "supportMessage",
