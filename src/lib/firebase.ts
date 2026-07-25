@@ -70,7 +70,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
-export const BKASH_NUMBER = "01886258144"; // Admin contact from prompt
+export const BKASH_NUMBER = "01568760651"; // Admin contact
 
 export const checkIfAdmin = async (user: User | null) => {
   if (!user) return false;

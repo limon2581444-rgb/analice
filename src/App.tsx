@@ -420,8 +420,8 @@ export default function App() {
   const [trc20Address, setTrc20Address] = useState("");
   const [adminTrc20Address, setAdminTrc20Address] = useState("");
   const [copiedTrc, setCopiedTrc] = useState(false);
-  const [bkashNumber, setBkashNumber] = useState("1236032255");
-  const [adminBkashNumber, setAdminBkashNumber] = useState("1236032255");
+  const [bkashNumber, setBkashNumber] = useState("01568760651");
+  const [adminBkashNumber, setAdminBkashNumber] = useState("01568760651");
   const [copiedBkash, setCopiedBkash] = useState(false);
 
   // Load global payment settings on mount
@@ -432,8 +432,9 @@ export default function App() {
         const data = docSnap.data();
         setTrc20Address(data.trc20Address || "");
         setAdminTrc20Address(data.trc20Address || "");
-        setBkashNumber(data.bkashNumber || "1236032255");
-        setAdminBkashNumber(data.bkashNumber || "1236032255");
+        const activeBkash = (data.bkashNumber && data.bkashNumber !== '1236032255') ? data.bkashNumber : "01568760651";
+        setBkashNumber(activeBkash);
+        setAdminBkashNumber(activeBkash);
       }
     }, (err) => {
       console.error("Error loaded settings:", err);
@@ -462,11 +463,11 @@ export default function App() {
           getDoc(configRef).then((configSnap) => {
             if (configSnap.exists()) {
               const data = configSnap.data();
-              if (data.bkashNumber !== '1236032255') {
-                updateDoc(configRef, { bkashNumber: '1236032255' }).catch(err => console.error("Error auto-updating bkash config:", err));
+              if (data.bkashNumber !== '01568760651') {
+                updateDoc(configRef, { bkashNumber: '01568760651' }).catch(err => console.error("Error auto-updating bkash config:", err));
               }
             } else {
-              setDoc(configRef, { bkashNumber: '1236032255', trc20Address: 'TPAXoRZNjyn9XqwtmkV9xaTAzyeqEW2Hxy' }).catch(err => console.error("Error auto-setting bkash config:", err));
+              setDoc(configRef, { bkashNumber: '01568760651', trc20Address: 'TPAXoRZNjyn9XqwtmkV9xaTAzyeqEW2Hxy' }).catch(err => console.error("Error auto-setting bkash config:", err));
             }
           }).catch(err => console.error("Error loading config during admin check:", err));
         }
@@ -745,7 +746,23 @@ export default function App() {
       return;
     }
     const unsubscribe = getAllUsersSnap((users) => {
-      setAllUsersList(users);
+      // Sort users by registration date (createdAt) to assign serials chronologically starting from 100
+      const sortedByRegistration = [...users].sort((a, b) => {
+        const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : (a.createdAt instanceof Date ? a.createdAt.getTime() : 0);
+        const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : (b.createdAt instanceof Date ? b.createdAt.getTime() : 0);
+        if (timeA !== timeB) return timeA - timeB;
+        return (a.uid || "").localeCompare(b.uid || "");
+      });
+
+      // Map users to guarantee a userSerial
+      const mapped = users.map(u => {
+        if (u.userSerial) return u;
+        const indexInChrono = sortedByRegistration.findIndex(su => su.uid === u.uid);
+        const calculatedSerial = 100 + (indexInChrono >= 0 ? indexInChrono : 0);
+        return { ...u, userSerial: calculatedSerial };
+      });
+
+      setAllUsersList(mapped);
     });
     return () => {
       if (unsubscribe) unsubscribe();
