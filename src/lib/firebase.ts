@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, User, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, addDoc, collection, serverTimestamp, query, where, getDocs, orderBy, updateDoc, onSnapshot, writeBatch } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, addDoc, collection, serverTimestamp, query, where, getDocs, orderBy, updateDoc, onSnapshot, writeBatch, limit } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -246,7 +246,7 @@ export const getAllUsersSnap = (callback: (users: any[]) => void) => {
 export const saveTradeLog = async (userId: string, prediction: string, confidence: number, explanation: string, outcome: 'PROFIT' | 'LOSS') => {
   const path = `users/${userId}/trades`;
   try {
-    return await addDoc(collection(db, 'users', userId, 'trades'), {
+    const newDocRef = await addDoc(collection(db, 'users', userId, 'trades'), {
       userId,
       prediction,
       confidence,
@@ -254,6 +254,19 @@ export const saveTradeLog = async (userId: string, prediction: string, confidenc
       outcome,
       timestamp: serverTimestamp(),
     });
+
+    // Automatically enforce 10 trade limit: keep top 10 most recent, delete older trades
+    const q = query(collection(db, 'users', userId, 'trades'), orderBy('timestamp', 'desc'));
+    const snapshot = await getDocs(q);
+    if (snapshot.docs.length > 10) {
+      const batch = writeBatch(db);
+      for (let i = 10; i < snapshot.docs.length; i++) {
+        batch.delete(snapshot.docs[i].ref);
+      }
+      await batch.commit();
+    }
+
+    return newDocRef;
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -262,10 +275,10 @@ export const saveTradeLog = async (userId: string, prediction: string, confidenc
 export const getTradeLogsSnap = (userId: string, callback: (trades: any[]) => void) => {
   const path = `users/${userId}/trades`;
   try {
-    const q = query(collection(db, 'users', userId, 'trades'), orderBy('timestamp', 'desc'));
+    const q = query(collection(db, 'users', userId, 'trades'), orderBy('timestamp', 'desc'), limit(10));
     return onSnapshot(q, (snap) => {
       const trades = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      callback(trades);
+      callback(trades.slice(0, 10));
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, path);
     });

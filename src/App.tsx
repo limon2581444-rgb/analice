@@ -10,7 +10,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX, Zap, Target, Sliders, DollarSign } from 'lucide-react';
+import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX, Zap, Target, Sliders, DollarSign, History } from 'lucide-react';
 import { analyzeChartImage, AnalysisResult } from './services/geminiService';
 import { toPng } from 'html-to-image';
 import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap, saveTradeLog, getTradeLogsSnap, clearTradeLogs } from './lib/firebase';
@@ -638,15 +638,30 @@ export default function App() {
     }
   }, [user, userData, isAdmin, isUserSubscribed]);
 
-  // Dedicated listener for local logged trade signals (Profit / Loss history)
+  // Dedicated listener for trade signals (Profit / Loss history) with localStorage persistence
   useEffect(() => {
-    if (!user) {
-      setTradeHistory([]);
-      return;
-    }
+    try {
+      const saved = localStorage.getItem('trade_history_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setTradeHistory(parsed.slice(0, 10));
+        }
+      }
+    } catch(e) {}
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
     
     const unsubscribe = getTradeLogsSnap(user.uid, (trades) => {
-      setTradeHistory(trades);
+      if (trades && trades.length > 0) {
+        const trimmed = trades.slice(0, 10);
+        setTradeHistory(trimmed);
+        try {
+          localStorage.setItem('trade_history_v1', JSON.stringify(trimmed));
+        } catch(e) {}
+      }
     });
     
     return () => {
@@ -1001,6 +1016,24 @@ export default function App() {
     setTradeLogged(true);
     setLoggedOutcome(outcome);
 
+    const newTradeObj = {
+      id: Date.now().toString(),
+      prediction: activePrediction,
+      confidence: result.confidence,
+      explanation: result.explanation,
+      outcome,
+      timestamp: new Date()
+    };
+
+    // Immediately keep max 10 most recent items in state and localStorage
+    setTradeHistory(prev => {
+      const updated = [newTradeObj, ...prev].slice(0, 10);
+      try {
+        localStorage.setItem('trade_history_v1', JSON.stringify(updated));
+      } catch(e) {}
+      return updated;
+    });
+
     if (user) {
       try {
         await saveTradeLog(
@@ -1021,22 +1054,25 @@ export default function App() {
   };
 
   const handleClearTradeHistory = async () => {
-    if (!user) return;
     const confirmClear = window.confirm("আপনি কি নিশ্চিত যে আপনি আপনার সমস্ত ট্রেড হিস্ট্রি মুছে ফেলতে চান? এটি আর ফেরত পাওয়া যাবে না।\n\nAre you sure you want to clear your trade history? This cannot be undone.");
     if (!confirmClear) return;
 
     setClearingHistory(true);
-    // Instantly empty the local history list for immediate visual confirmation
+    // Instantly empty local state and storage
     setTradeHistory([]);
     try {
-      await clearTradeLogs(user.uid);
-      alert("ট্রেড হিস্ট্রি সফলভাবে মুছে ফেলা হয়েছে।\nTrade history cleared successfully.");
-    } catch (err: any) {
-      console.error(err);
-      alert("হিস্ট্রি মুছতে সমস্যা হয়েছে: " + (err.message || ""));
-    } finally {
-      setClearingHistory(false);
+      localStorage.removeItem('trade_history_v1');
+    } catch(e) {}
+
+    if (user) {
+      try {
+        await clearTradeLogs(user.uid);
+      } catch (err: any) {
+        console.error(err);
+      }
     }
+    setClearingHistory(false);
+    alert("ট্রেড হিস্ট্রি সফলভাবে মুছে ফেলা হয়েছে।\nTrade history cleared successfully.");
   };
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -1901,10 +1937,10 @@ export default function App() {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-[10px] uppercase tracking-widest text-gray-500 flex items-center gap-2 font-black">
                 <Activity className="w-3.5 h-3.5 text-emerald-500" />
-                ট্রেড হিস্ট্রি (Trade History)
+                ট্রেড হিস্ট্রি (সর্বোচ্চ ১০টি)
               </h3>
               <div className="flex items-center gap-2">
-                {user && tradeHistory.length > 0 && (
+                {tradeHistory.length > 0 && (
                   <button
                     id="clear-trade-history-btn"
                     onClick={handleClearTradeHistory}
@@ -1915,19 +1951,13 @@ export default function App() {
                     {clearingHistory ? "Clearing..." : "Clear"}
                   </button>
                 )}
-                {user && (
-                  <span className="text-[10px] font-mono font-bold bg-[#14151a] px-2 py-0.5 border border-gray-800 rounded-full text-gray-400">
-                    {tradeHistory.length} Saved
-                  </span>
-                )}
+                <span className="text-[10px] font-mono font-bold bg-[#14151a] px-2 py-0.5 border border-gray-800 rounded-full text-gray-400">
+                  {tradeHistory.length}/10 Saved
+                </span>
               </div>
             </div>
             
-            {!user ? (
-              <div className="p-3 bg-[#111216]/50 border border-dashed border-gray-800/40 rounded text-center">
-                <p className="text-[10px] text-gray-650">হিস্ট্রি দেখতে দয়া করে লগইন করুন।</p>
-              </div>
-            ) : tradeHistory.length === 0 ? (
+            {tradeHistory.length === 0 ? (
               <div className="p-3 bg-[#111216]/50 border border-dashed border-gray-800/40 rounded text-center">
                 <p className="text-[10px] text-gray-600">কোনো ট্রেড হিস্ট্রি এখনও সংরক্ষিত নেই।</p>
               </div>
@@ -1959,7 +1989,7 @@ export default function App() {
 
                 {historyTab === 'list' ? (
                   <div className="space-y-2 overflow-y-auto max-h-[300px] custom-scrollbar pr-1 flex-1">
-                    {tradeHistory.slice(0, 50).map((trade, idx) => (
+                    {tradeHistory.slice(0, 10).map((trade, idx) => (
                       <div key={trade.id || idx} className="p-2.5 bg-[#14151a] border border-gray-900/40 rounded flex flex-col gap-1 text-xs">
                         <div className="flex items-center justify-between">
                           <span className={`text-[10px] font-mono tracking-widest px-1.5 py-0.5 rounded leading-none font-bold ${
@@ -2379,6 +2409,54 @@ export default function App() {
                                   </div>
                                 </div>
 
+                                {/* Trade History Box right underneath Profit / Loss Section */}
+                                <div className="space-y-2 bg-black/70 border border-gray-800 p-3.5 rounded-2xl shadow-lg my-2">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10.5px] font-mono font-bold uppercase tracking-wider text-gray-200 flex items-center gap-1.5">
+                                      <History className="w-3.5 h-3.5 text-emerald-400" />
+                                      ট্রেড হিস্ট্রি বক্স ({tradeHistory.length}/10)
+                                    </span>
+                                    {tradeHistory.length > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={handleClearTradeHistory}
+                                        disabled={clearingHistory}
+                                        className="text-[9.5px] font-mono font-bold text-rose-400/90 hover:text-rose-300 hover:underline cursor-pointer"
+                                      >
+                                        Clear History
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {tradeHistory.length === 0 ? (
+                                    <p className="text-[10px] font-mono text-gray-500 text-center py-2.5 italic border border-dashed border-gray-800/80 rounded-xl bg-gray-950/40">
+                                      কোনো ইতিহাস নেই। PROFIT অথবা LOSS বাটনে ট্যাপ করলে হিস্ট্রি সেভ হবে।
+                                    </p>
+                                  ) : (
+                                    <div className="space-y-1.5 max-h-[160px] overflow-y-auto custom-scrollbar pr-0.5">
+                                      {tradeHistory.slice(0, 10).map((trade, idx) => (
+                                        <div key={trade.id || idx} className="p-2 bg-[#101116] border border-gray-800/80 rounded-xl flex items-center justify-between text-xs">
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            <span className={`text-[9px] font-mono font-black px-2 py-0.5 rounded-md ${
+                                              trade.outcome === 'PROFIT' 
+                                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' 
+                                                : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                                            }`}>
+                                              {trade.outcome}
+                                            </span>
+                                            <span className="text-[10px] font-mono text-gray-200 font-bold truncate">
+                                              {trade.prediction || 'SIGNAL'}
+                                            </span>
+                                          </div>
+                                          <span className="text-[9.5px] font-mono text-gray-400 font-bold shrink-0">
+                                            {trade.confidence ? `${trade.confidence}% Conf` : ''}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+
                                 <div className="grid grid-cols-2 gap-2 pt-2">
                                   <button
                                     onClick={copyToClipboard}
@@ -2521,7 +2599,7 @@ export default function App() {
                           >
                             <div className="flex items-center justify-between">
                               <h4 className="text-[10px] uppercase font-bold tracking-widest text-gray-500">ট্রেড হিস্ট্রি লগ (Trade Logs)</h4>
-                              {user && tradeHistory.length > 0 && (
+                              {tradeHistory.length > 0 && (
                                 <button
                                   onClick={handleClearTradeHistory}
                                   disabled={clearingHistory}
@@ -2531,11 +2609,7 @@ export default function App() {
                                 </button>
                               )}
                             </div>
-                            {!user ? (
-                              <div className="p-4 bg-[#111216]/50 border border-dashed border-gray-800 rounded text-center">
-                                <p className="text-xs text-gray-550">ইতিহাস দেখতে দয়া করে লগইন করুন।</p>
-                              </div>
-                            ) : tradeHistory.length === 0 ? (
+                            {tradeHistory.length === 0 ? (
                               <div className="p-4 bg-[#111216]/50 border border-dashed border-gray-800 rounded text-center">
                                 <p className="text-xs text-gray-550">কোনো ট্রেড হিস্ট্রি সংরক্ষিত নেই।</p>
                               </div>
@@ -2566,7 +2640,7 @@ export default function App() {
                                 
                                 {historyTab === 'list' ? (
                                   <div className="space-y-2 overflow-y-auto max-h-[320px] custom-scrollbar pr-1">
-                                    {tradeHistory.slice(0, 50).map((trade, idx) => (
+                                    {tradeHistory.slice(0, 10).map((trade, idx) => (
                                       <div key={trade.id || idx} className="p-2.5 bg-[#14151a] border border-gray-900 rounded flex flex-col gap-1 text-xs">
                                         <div className="flex items-center justify-between">
                                           <span className={`text-[9px] font-mono tracking-widest px-1.5 py-0.5 rounded leading-none font-bold ${
