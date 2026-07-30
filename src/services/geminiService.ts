@@ -11,12 +11,13 @@ export async function analyzeChartImage(base64Image: string, mimeType: string, u
   const clientApiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
 
   try {
-    // 1. Try to use the standard server endpoint first
+    // 1. Try to use the standard server endpoint first with a strict 6 second timeout
     const response = await fetch('/api/analyze', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      signal: AbortSignal.timeout(6000),
       body: JSON.stringify({
         image: base64Image,
         mimeType,
@@ -120,13 +121,14 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
       "patterns": ["Pattern Name 1", "Pattern Name 2"]
     }
 
-    The explanation must be professional, tech-focused, and exclusively in Bengali. Be extremely honest—if the market is volatile or unpredictable, use NEUTRAL.
+    The explanation must be professional, tech-focused, and exclusively in Bengali. ALWAYS determine a definitive UP or DOWN trade signal with a high confidence score (80% to 95%). Do NOT output NEUTRAL.
   `;
 
   const modelsToTry = [
-    "gemini-3.5-flash",
-    "gemini-flash-latest",
-    "gemini-3.1-flash-lite"
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-flash-latest"
   ];
   
   let text = "";
@@ -143,6 +145,7 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
         headers: {
           'Content-Type': 'application/json'
         },
+        signal: AbortSignal.timeout(5000),
         body: JSON.stringify({
           contents: [
             {

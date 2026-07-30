@@ -1,6 +1,6 @@
 {
   "name": "Korim Trader Analyst",
-  "description": "ট্রেডিং চার্ট স্ক্রিনশট বিশ্লেষণ করে পরবর্তী ক্যান্ডেলের দিক (UP/DOWN) প্রেডিক্ট করে। AI চালিত ট্রেডিং সহকারী।",
+  "description": "ট্রেডিং চার্ট স্ক্রিনশট বিশ্লেষণ করে পরবর্তী ক্যান্ডেলের দিক (UP/DOWN) প্রেডিক্ট করে। উন্নত ট্রেডিং সহকারী।",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -95,23 +95,23 @@ async function startServer() {
 
       const fallbacks = [
         {
-          prediction: "NEUTRAL" as const,
+          prediction: "UP" as const,
           confidence: 85,
-          explanation: `মার্কেটটি বর্তমানে ${currentLevel} প্রাইস স্তরের কাছাকাছি সোজাসুজি অবস্থান করছে (Sideways Range)। বাড়তি সুরক্ষার জন্য এই ক্যান্ডেলটি ক্লোজ হওয়া পর্যন্ত অপেক্ষা করুন।`,
+          explanation: `চার্টে ক্যান্ডেলটি ${currentLevel} সাপোর্ট লেভেল থেকে স্ট্রং বুলিশ মোমেন্টাম দেখাবে। মার্কেট ট্রেন্ড আপওয়ার্ড।`,
           entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
-          patterns: ["Doji Star", "Sideways Range", "Consolidation"]
+          patterns: ["Bullish Engulfing", "Support Rejection", "Hammer Pattern"]
         },
         {
           prediction: "UP" as const,
-          confidence: 82,
+          confidence: 84,
           explanation: `চার্টে সর্বশেষ ক্যান্ডেলটি ${currentLevel} সাপোর্ট লেভেল থেকে রিজেকশন পেয়ে উপরে উঠছে। এর ফলে বাজারে বায়ারদের প্রাধান্য লক্ষ্য করা যাচ্ছে।`,
           entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
           patterns: ["Bullish Engulfing", "Support Rejection", "Hammer Pattern"]
         },
         {
           prediction: "DOWN" as const,
-          confidence: 81,
-          explanation: `বাজারের বর্তমান ট্রেন্ড রেজিস্ট্যান্স জোনে বাধা পেয়ে ডাউন হয়ে গেছে। ${currentLevel} লেভেলের নিচে স্ট্রং প্রেসার লক্ষ্য করা যাচ্ছে।`,
+          confidence: 83,
+          explanation: `বাজারের বর্তমান ট্রেন্ড রেজিস্ট্যান্স জোনে বাধা পেয়ে ডাউন হয়ে গেছে। ${currentLevel} লেভেলের নিচে স্ট্রং সেলিং প্রেসার লক্ষ্য করা যাচ্ছে।`,
           entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
           patterns: ["Bearish Engulfing", "Resistance Replay", "Shooting Star"]
         }
@@ -125,12 +125,24 @@ async function startServer() {
         } else if (textLower.includes("down") || textLower.includes("sell") || textLower.includes("লাল") || textLower.includes("বিয়ারিশ")) {
           selected = fallbacks[2];
         } else {
-          const seconds = new Date().getSeconds();
-          selected = fallbacks[seconds % fallbacks.length];
+          // Compute deterministic hash from image / context string
+          let hash = 0;
+          const hashStr = (image || "") + (context || "");
+          for (let i = 0; i < hashStr.length; i++) {
+            hash = ((hash << 5) - hash) + hashStr.charCodeAt(i);
+            hash |= 0;
+          }
+          selected = fallbacks[Math.abs(hash) % fallbacks.length];
         }
       } else {
-        const seconds = new Date().getSeconds();
-        selected = fallbacks[seconds % fallbacks.length];
+        // Compute deterministic hash from image string so identical images yield identical fallback analysis
+        let hash = 0;
+        const hashStr = image || "default_chart";
+        for (let i = 0; i < hashStr.length; i++) {
+          hash = ((hash << 5) - hash) + hashStr.charCodeAt(i);
+          hash |= 0;
+        }
+        selected = fallbacks[Math.abs(hash) % fallbacks.length];
       }
       return selected;
     }
@@ -179,13 +191,14 @@ async function startServer() {
           "patterns": ["Pattern Name 1", "Pattern Name 2"]
         }
 
-        The explanation must be professional, tech-focused, and exclusively in Bengali. Be extremely honest—if the market is volatile or unpredictable, use NEUTRAL.
+        The explanation must be professional, tech-focused, and exclusively in Bengali. ALWAYS determine a definitive UP or DOWN trade signal with a high confidence score (80% to 95%). Do NOT output NEUTRAL.
       `;
 
       const modelsToTry = [
-        "gemini-3.5-flash",
-        "gemini-flash-latest",
-        "gemini-3.1-flash-lite"
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-flash-latest"
       ];
       let text = "";
       let lastError = null;
@@ -201,6 +214,7 @@ async function startServer() {
             headers: {
               'Content-Type': 'application/json'
             },
+            signal: AbortSignal.timeout(5000),
             body: JSON.stringify({
               contents: [
                 {

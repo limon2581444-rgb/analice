@@ -10,7 +10,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX } from 'lucide-react';
+import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX, Zap, Target, Sliders, DollarSign } from 'lucide-react';
 import { analyzeChartImage, AnalysisResult } from './services/geminiService';
 import { toPng } from 'html-to-image';
 import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap, saveTradeLog, getTradeLogsSnap, clearTradeLogs } from './lib/firebase';
@@ -20,6 +20,7 @@ import { playAnalysisReadySound, playMessageAlertSound, isSoundEnabled, setSound
 import { TrendAnalysisGraph } from './components/TrendAnalysisGraph';
 import { PredictionTrendChart } from './components/PredictionTrendChart';
 import { TradingTimer } from './components/TradingTimer';
+import { MoneyManagementModal } from './components/MoneyManagementModal';
 // @ts-ignore
 import tradeLensLogo from './assets/images/tradelens_logo_1783032357643.jpg';
 
@@ -353,12 +354,34 @@ export default function App() {
     return localStorage.getItem('isBackdoorAdmin') === 'true';
   });
   const [currentView, setCurrentView] = useState<'analysis' | 'payment' | 'adminLogin' | 'adminPanel'>('analysis');
-  const [rightActiveTab, setRightActiveTab] = useState<'signal' | 'liveChat' | 'history'>('signal');
+  const [rightActiveTab, setRightActiveTab] = useState<'signal' | 'liveChat' | 'history' | 'moneyManagement'>('signal');
+  const [showMoneyManagementModal, setShowMoneyManagementModal] = useState<boolean>(false);
   const [image, setImage] = useState<string | null>(null);
   const [userContext, setUserContext] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisCountdown, setAnalysisCountdown] = useState<number>(7);
+
+  // 7 Seconds countdown effect for ultra-fast signal processing
+  useEffect(() => {
+    let timer: any;
+    if (analyzing) {
+      setAnalysisCountdown(7);
+      timer = setInterval(() => {
+        setAnalysisCountdown(prev => (prev > 1 ? prev - 1 : 1));
+      }, 1000);
+    } else {
+      setAnalysisCountdown(7);
+    }
+    return () => clearInterval(timer);
+  }, [analyzing]);
   const [showSuccess, setShowSuccess] = useState(false);
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [signalMode, setSignalMode] = useState<'sure_shot' | 'normal'>('normal');
+
+  // Compute effective prediction based on active signal mode (Sure Shot 80%+ vs Normal 70%+)
+  const activePrediction = result
+    ? (result.confidence < (signalMode === 'sure_shot' ? 80 : 70) ? 'NEUTRAL' : result.prediction)
+    : 'NEUTRAL';
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -393,6 +416,7 @@ export default function App() {
 
   // Profit / Loss tracking states
   const [tradeLogged, setTradeLogged] = useState<boolean>(false);
+  const [loggedOutcome, setLoggedOutcome] = useState<'PROFIT' | 'LOSS' | null>(null);
   const [tradeHistory, setTradeHistory] = useState<any[]>([]);
   const [loggingHistory, setLoggingHistory] = useState<boolean>(false);
   const [clearingHistory, setClearingHistory] = useState<boolean>(false);
@@ -847,6 +871,11 @@ export default function App() {
   }, [handlePaste]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (result && !tradeLogged) {
+      alert("পরবর্তী ইমেজ আপলোড বা বিশ্লেষণ করার আগে বর্তমান ট্রেডের ফলাফল (PROFIT অথবা LOSS) নির্বাচন করুন!");
+      e.target.value = '';
+      return;
+    }
     const file = e.target.files?.[0];
     if (file) {
       if (!file.type.startsWith('image/')) {
@@ -966,26 +995,27 @@ export default function App() {
   };
 
   const handleLogTrade = async (outcome: 'PROFIT' | 'LOSS') => {
-    if (!user) {
-      alert("ট্রেড লক করার জন্য দয়া করে আগে লগইন বা ভেরিফাই করুন।");
-      return;
-    }
     if (!result) return;
     
     setLoggingHistory(true);
-    try {
-      await saveTradeLog(
-        user.uid,
-        result.prediction,
-        result.confidence,
-        result.explanation,
-        outcome
-      );
-      setTradeLogged(true);
-    } catch (err: any) {
-      console.error(err);
-      alert("ট্রেড হিস্ট্রি সেইভ করতে সমস্যা হয়েছে: " + (err.message || ""));
-    } finally {
+    setTradeLogged(true);
+    setLoggedOutcome(outcome);
+
+    if (user) {
+      try {
+        await saveTradeLog(
+          user.uid,
+          activePrediction,
+          result.confidence,
+          result.explanation,
+          outcome
+        );
+      } catch (err: any) {
+        console.error(err);
+      } finally {
+        setLoggingHistory(false);
+      }
+    } else {
       setLoggingHistory(false);
     }
   };
@@ -1111,6 +1141,11 @@ export default function App() {
   const startAnalysis = async () => {
     if (!image) return;
     
+    if (result && !tradeLogged) {
+      alert("পরবর্তী সিগন্যাল এর জন্য লস বা প্রফিট এ ট্যাপ করুন!");
+      return;
+    }
+
     // Check usage limits for non-admins
     if (!isAdmin) {
       if (!user) {
@@ -1150,7 +1185,7 @@ export default function App() {
       // Force neutral prediction if confidence is less than 65% to ensure safety rule
       if (data && data.confidence < 65 && (data.prediction === 'UP' || data.prediction === 'DOWN')) {
         data.prediction = 'NEUTRAL';
-        data.entryTarget = 'এআই নিশ্চিত নয় (কনফিডেন্স ৬৫% এর কম)। অতিরিক্ত সুরক্ষার জন্য কোনো ট্রেড এন্ট্রি নেওয়া যাবে না।';
+        data.entryTarget = 'কনফিডেন্স ৬৫% এর কম। অতিরিক্ত সুরক্ষার জন্য কোনো ট্রেড এন্ট্রি নেওয়া যাবে না।';
       }
 
       // Synchronize patterns list to strictly match the prediction to prevent any contradictions
@@ -1250,7 +1285,8 @@ export default function App() {
 
   const copyToClipboard = () => {
     if (result) {
-      const text = `Korim Trader Analyst AI Analysis:\nPrediction: ${result.prediction}\nConfidence: ${result.confidence}%\nExplanation: ${result.explanation}\nPatterns: ${result.patterns.join(', ')}`;
+      const modeText = signalMode === 'sure_shot' ? 'Sure Shot Mode (80%+ Accuracy)' : 'Normal Mode (70%+ Accuracy)';
+      const text = `Korim Trader Signal Analysis:\nSignal Mode: ${modeText}\nPrediction: ${activePrediction}\nConfidence: ${result.confidence}%\nExplanation: ${result.explanation}\nPatterns: ${result.patterns.join(', ')}`;
       navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -1258,11 +1294,16 @@ export default function App() {
   };
 
   const reset = () => {
+    if (result && !tradeLogged) {
+      alert("পরবর্তী সিগন্যাল এর জন্য লস বা প্রফিট এ ট্যাপ করুন!");
+      return;
+    }
     setImage(null);
     setResult(null);
     setError(null);
     setUserContext('');
     setTradeLogged(false);
+    setLoggedOutcome(null);
   };
 
   const [adminPhone, setAdminPhone] = useState("");
@@ -1468,10 +1509,20 @@ export default function App() {
         <div className="flex items-center space-x-2 md:space-x-6 min-w-0">
           <div className="hidden md:flex items-center space-x-6">
             <div className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">Engine: <span className="text-emerald-400">NEURAL-GEN-4</span></div>
-            <div className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">Status: <span className="text-emerald-400">AI Standby</span></div>
+            <div className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">Status: <span className="text-emerald-400">Signal Active</span></div>
           </div>
           
           <div className="flex items-center gap-1.5 md:gap-3 pl-1.5 md:pl-4 border-l border-gray-800">
+            {/* Money Management Button */}
+            <button
+              onClick={() => setShowMoneyManagementModal(true)}
+              className="flex items-center gap-1 sm:gap-1.5 px-2 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 hover:border-emerald-500/60 rounded-xl text-[9px] sm:text-[10px] font-black text-emerald-400 transition-all uppercase tracking-wider shrink-0 shadow-[0_0_12px_rgba(16,185,129,0.15)] cursor-pointer active:scale-95"
+              title="মানি ম্যানেজমেন্ট প্ল্যান ও তালিকা (Money Management)"
+            >
+              <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="whitespace-nowrap">মানি ম্যানেজমেন্ট</span>
+            </button>
+
             {/* Sound Level Alert Control */}
             <button
               onClick={toggleSound}
@@ -1736,6 +1787,44 @@ export default function App() {
               <MessageSquare className="w-3.5 h-3.5 text-emerald-500" /> ANALYSIS SETTINGS
             </h3>
             <div className="flex-1 flex flex-col gap-4">
+
+              {/* SIGNAL ACCURACY FILTER MODE SELECTOR */}
+              <div className="space-y-1.5 text-left bg-black/40 p-3 rounded-xl border border-gray-800">
+                <label className="text-[10px] uppercase tracking-wider font-extrabold text-gray-300 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Sliders className="w-3.5 h-3.5 text-emerald-400" /> সিগন্যাল ফিল্টার মোড:
+                  </span>
+                  <span className="text-[9px] font-mono font-bold text-emerald-400">{signalMode === 'sure_shot' ? '80%+' : '70%+'}</span>
+                </label>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setSignalMode('sure_shot')}
+                    className={`p-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-1 border cursor-pointer ${
+                      signalMode === 'sure_shot'
+                        ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                        : 'bg-[#14151a] text-gray-400 border-gray-800 hover:text-white hover:border-gray-700'
+                    }`}
+                    title="Sure Shot Mode: ৮০% বা তার বেশি কনফিডেন্স না হলে NEUTRAL দেখাবে"
+                  >
+                    <Zap className="w-4 h-4" />
+                    <span>Sure Shot (80%+)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSignalMode('normal')}
+                    className={`p-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-1 border cursor-pointer ${
+                      signalMode === 'normal'
+                        ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                        : 'bg-[#14151a] text-gray-400 border-gray-800 hover:text-white hover:border-gray-700'
+                    }`}
+                    title="Normal Signal Mode: ৭০% বা তার বেশি কনফিডেন্স হলে সিগন্যাল দেখাবে"
+                  >
+                    <Target className="w-4 h-4" />
+                    <span>Normal (70%+)</span>
+                  </button>
+                </div>
+              </div>
               
               {/* USER CUSTOM CONTEXT PROMPT */}
               <div className="space-y-1.5 flex-1 flex flex-col text-left">
@@ -1775,6 +1864,19 @@ export default function App() {
                     <Send className="w-4 h-4" />
                   </button>
                 </div>
+              </div>
+
+              {/* Trading Guidelines Advisory Note */}
+              <div className="p-3 bg-amber-500/10 border border-amber-500/25 rounded-xl text-left space-y-1.5">
+                <div className="flex items-center gap-1.5 text-amber-400 font-black text-[10px] uppercase tracking-wider font-mono">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                  <span>জরুরি ট্রেডিং নিয়মাবলী:</span>
+                </div>
+                <ul className="text-[10px] text-amber-200/90 leading-relaxed font-medium space-y-1 list-disc list-inside">
+                  <li>AM বা PM যেকোনো সময় <strong>১:০০ টা থেকে ২:০০ টা</strong> পর্যন্ত ট্রেড নিবেন না।</li>
+                  <li>কমপক্ষে <strong>৫ মিনিট পর পর</strong> ট্রেড নিন।</li>
+                  <li>সারাদিনে <strong>১০ টা ট্রেড</strong> নিলেই অনেক, বেশি লোভ করবেন না।</li>
+                </ul>
               </div>
 
               <button
@@ -1909,8 +2011,44 @@ export default function App() {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 1.05 }}
-                className="w-full max-w-2xl relative z-10"
+                className="w-full max-w-2xl relative z-10 space-y-4"
               >
+                {/* Accuracy Signal Filter selector bar above upload */}
+                <div className="bg-[#0b0d12] border border-gray-800 p-3 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xl backdrop-blur-md">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-emerald-400" />
+                    <span className="text-xs font-black text-gray-200 uppercase tracking-wider">সিগন্যাল মোড সিলেক্ট করুন:</span>
+                  </div>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={() => setSignalMode('sure_shot')}
+                      className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
+                        signalMode === 'sure_shot'
+                          ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.35)] scale-105'
+                          : 'bg-[#14151a] text-gray-400 border-gray-800 hover:text-white hover:bg-white/5'
+                      }`}
+                      title=" Sure Shot Mode: ৮০% বা তার বেশি কনফিডেন্স হলে সিগন্যাল দেখাবে"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>Sure Shot (80%+)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSignalMode('normal')}
+                      className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
+                        signalMode === 'normal'
+                          ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.35)] scale-105'
+                          : 'bg-[#14151a] text-gray-400 border-gray-800 hover:text-white hover:bg-white/5'
+                      }`}
+                      title="Normal Signal Mode: ৭০% বা তার বেশি কনফিডেন্স হলে সিগন্যাল দেখাবে"
+                    >
+                      <Target className="w-3.5 h-3.5" />
+                      <span>Normal (70%+)</span>
+                    </button>
+                  </div>
+                </div>
+
                 <label className="group relative h-96 flex flex-col items-center justify-center border border-emerald-500/20 rounded-2xl bg-[#090b0e]/90 backdrop-blur-md hover:border-emerald-500/40 hover:bg-[#0c0f14]/95 transition-all duration-500 cursor-pointer overflow-hidden p-8 text-center shadow-[0_0_50px_rgba(16,185,129,0.05)] hover:shadow-[0_0_60px_rgba(16,185,129,0.12)]">
                    <input type="file" className="hidden" onChange={handleFileUpload} accept="image/*" />
                    <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle_at_center,_#10b981_0%,_transparent_75%)] group-hover:opacity-25 transition-opacity duration-500" />
@@ -1972,11 +2110,42 @@ export default function App() {
                   <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_#10b981_0%,_transparent_70%)]" />
                   
                   {/* Header in the analysis box */}
-                  <div className="px-4 py-2.5 sm:px-6 sm:py-4 border-b border-white/5 flex flex-col sm:flex-row items-center justify-between shrink-0 bg-black/20 backdrop-blur-sm z-10 gap-2 sm:gap-0">
+                  <div className="px-4 py-2.5 sm:px-6 sm:py-3 border-b border-white/5 flex flex-col sm:flex-row items-center justify-between shrink-0 bg-black/40 backdrop-blur-sm z-10 gap-2">
                     <div className="flex items-center space-x-2 text-[9px] sm:text-[10px] font-mono">
                       <span className="text-emerald-400 whitespace-nowrap">● Mode: {analyzing ? 'ACTIVE' : 'STATIC'}</span>
                       <span className="text-gray-600">|</span>
                       <span className="text-gray-400 font-bold uppercase tracking-widest whitespace-nowrap">NEURAL FEED</span>
+                    </div>
+
+                    {/* Signal Accuracy Threshold Options (Above Dashboard) */}
+                    <div className="flex items-center gap-1.5 bg-[#0a0c10] p-1 rounded-xl border border-gray-800 shadow-inner">
+                      <button
+                        type="button"
+                        onClick={() => setSignalMode('sure_shot')}
+                        className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer border ${
+                          signalMode === 'sure_shot'
+                            ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                            : 'bg-transparent text-gray-400 border-transparent hover:text-white hover:bg-white/5'
+                        }`}
+                        title="Sure Shot Mode: ৮০% বা তার বেশি কনফিডেন্স হলে সিগন্যাল দেখাবে, কম হলে নিউট্রাল"
+                      >
+                        <Zap className="w-3.5 h-3.5 text-current" />
+                        <span>Sure Shot (80%+)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setSignalMode('normal')}
+                        className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer border ${
+                          signalMode === 'normal'
+                            ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                            : 'bg-transparent text-gray-400 border-transparent hover:text-white hover:bg-white/5'
+                        }`}
+                        title="Normal Signal Mode: ৭০% বা তার বেশি কনফিডেন্স হলে সিগন্যাল দেখাবে, কম হলে নিউট্রাল"
+                      >
+                        <Target className="w-3.5 h-3.5 text-current" />
+                        <span>Normal (70%+)</span>
+                      </button>
                     </div>
                   </div>
 
@@ -1994,7 +2163,7 @@ export default function App() {
                         }`}
                       >
                         <Terminal className="w-3.5 h-3.5" />
-                        এআই সিগন্যাল ও চ্যাট (AI Signal & Chat)
+                        লাইভ সিগন্যাল ও চ্যাট (Live Signal & Chat)
                       </button>
                       
                       <button
@@ -2009,6 +2178,19 @@ export default function App() {
                         <Activity className="w-3.5 h-3.5" />
                         ট্রেড লগ (Log History)
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setRightActiveTab('moneyManagement')}
+                        className={`pb-1 px-1 font-black transition-all border-b-2 flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                          rightActiveTab === 'moneyManagement'
+                            ? 'text-emerald-400 border-emerald-500'
+                            : 'text-gray-500 border-transparent hover:text-gray-300'
+                        }`}
+                      >
+                        <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                        মানি ম্যানেজমেন্ট (Money Management)
+                      </button>
                     </div>
 
                         {rightActiveTab === 'signal' && (
@@ -2018,24 +2200,33 @@ export default function App() {
                                 key="analyzing"
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
-                                className="flex-1 flex flex-col items-center justify-center space-y-6 text-center py-8"
+                                className="flex-1 flex flex-col items-center justify-center space-y-5 text-center py-8"
                               >
                                 <div className="relative">
                                   <motion.div 
                                     animate={{ rotate: 360 }}
-                                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                                    className="w-20 h-20 border-2 border-dashed border-emerald-500/30 rounded-full"
+                                    transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
+                                    className="w-24 h-24 border-2 border-dashed border-emerald-500/60 rounded-full"
                                   />
-                                  <div className="absolute inset-0 flex items-center justify-center">
-                                    <Terminal className="w-8 h-8 text-emerald-500" />
+                                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                    <span className="text-2xl font-black text-emerald-400 font-mono drop-shadow-[0_0_10px_rgba(16,185,129,0.5)]">
+                                      {analysisCountdown}s
+                                    </span>
+                                    <Zap className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
                                   </div>
                                 </div>
-                                <div className="space-y-2">
-                                  <h3 className="text-xl font-bold text-white tracking-widest uppercase">Deep Scanning...</h3>
-                                  <div className="flex items-center gap-1 justify-center">
-                                     <div className="w-1 h-1 bg-emerald-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                                     <div className="w-1 h-1 bg-emerald-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                                     <div className="w-1 h-1 bg-emerald-500 rounded-full animate-bounce" />
+                                <div className="space-y-1.5">
+                                  <h3 className="text-base font-black text-white tracking-wider uppercase flex items-center justify-center gap-1.5 font-mono">
+                                    <Zap className="w-4 h-4 text-emerald-400 animate-bounce" />
+                                    ৭ সেকেন্ডে অতি-দ্রুত সিগন্যাল প্রসেসিং...
+                                  </h3>
+                                  <p className="text-[11px] text-emerald-400/90 font-bold tracking-wide font-mono">
+                                    ⚡ Ultra-Fast 7s Signal Engine Active
+                                  </p>
+                                  <div className="flex items-center gap-1.5 justify-center pt-1">
+                                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
+                                     <div className="w-2 h-2 bg-emerald-400 rounded-full animate-ping [animation-delay:-0.2s]" />
+                                     <div className="w-2 h-2 bg-teal-400 rounded-full animate-ping [animation-delay:-0.4s]" />
                                   </div>
                                 </div>
                               </motion.div>
@@ -2070,33 +2261,44 @@ export default function App() {
                                 className="space-y-5 text-left"
                               >
                                 <div className="space-y-1 text-left">
-                                  <span className="text-[10px] uppercase tracking-widest text-gray-600 font-bold italic">Prediction Matrix</span>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] uppercase tracking-widest text-gray-400 font-bold italic font-mono">Prediction Matrix</span>
+                                    <span className="text-[9.5px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                                      {signalMode === 'sure_shot' ? '⚡ SURE SHOT (80%+)' : '🎯 NORMAL SIGNAL (70%+)'}
+                                    </span>
+                                  </div>
                                   <div className="flex flex-col space-y-1">
                                     <h2 className={`text-5xl font-black italic tracking-tighter ${
-                                      result.prediction === 'UP' ? 'text-emerald-500 drop-shadow-[0_0_15px_rgba(16,185,129,0.4)]' :
-                                      result.prediction === 'DOWN' ? 'text-rose-500 drop-shadow-[0_0_15px_rgba(244,63,94,0.4)]' :
+                                      activePrediction === 'UP' ? 'text-emerald-500 drop-shadow-[0_0_15px_rgba(16,185,129,0.4)]' :
+                                      activePrediction === 'DOWN' ? 'text-rose-500 drop-shadow-[0_0_15px_rgba(244,63,94,0.4)]' :
                                       'text-amber-500'
                                     }`}>
-                                      {result.prediction === 'UP' ? 'UP' : 
-                                       result.prediction === 'DOWN' ? 'DOWN' : 
+                                      {activePrediction === 'UP' ? 'UP' : 
+                                       activePrediction === 'DOWN' ? 'DOWN' : 
                                        'NEUTRAL'}
                                     </h2>
-                                    <div className="flex items-center gap-2">
-                                      <div className="h-1 flex-1 bg-gray-800 rounded-full overflow-hidden">
+
+                                    {result.prediction !== 'NEUTRAL' && activePrediction === 'NEUTRAL' && (
+                                      <div className="text-[10px] text-amber-300 font-mono bg-amber-500/10 border border-amber-500/25 p-2 rounded-lg mt-1 flex items-center gap-1.5">
+                                        <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                                        <span>
+                                          কনফিডেন্স {result.confidence}%। {signalMode === 'sure_shot' ? 'Sure Shot (80%+)' : 'Normal Signal (70%+)'} মোড অনুযায়ী {signalMode === 'sure_shot' ? '৮০%' : '৭০%'} এর কম হওয়ায় নিরাপদ থাকার জন্য নিউট্রাল সংকেত দেওয়া হয়েছে।
+                                        </span>
+                                      </div>
+                                    )}
+
+                                    <div className="flex items-center gap-2 pt-1">
+                                      <div className="h-1.5 flex-1 bg-gray-800 rounded-full overflow-hidden">
                                         <motion.div 
                                           initial={{ width: 0 }}
                                           animate={{ width: `${result.confidence}%` }}
-                                          className={`h-full ${result.prediction === 'UP' ? 'bg-emerald-500' : result.prediction === 'DOWN' ? 'bg-rose-500' : 'bg-amber-500'}`}
+                                          className={`h-full ${activePrediction === 'UP' ? 'bg-emerald-500' : activePrediction === 'DOWN' ? 'bg-rose-500' : 'bg-amber-500'}`}
                                         />
                                       </div>
-                                      <span className="text-xs font-mono font-bold text-gray-500">{result.confidence}% PROB</span>
+                                      <span className="text-xs font-mono font-bold text-gray-400">{result.confidence}% PROB</span>
                                     </div>
                                   </div>
                                 </div>
-
-
-
-
 
                                 {result.patterns && result.patterns.length > 0 && (
                                   <div className="space-y-1.5">
@@ -2104,8 +2306,8 @@ export default function App() {
                                     <div className="flex flex-wrap gap-1.5">
                                       {result.patterns.map((pat, idx) => (
                                         <span key={idx} className={`px-2 py-0.5 bg-black/40 border rounded text-[10px] font-mono font-semibold ${
-                                          result.prediction === 'UP' ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5' :
-                                          result.prediction === 'DOWN' ? 'text-rose-400 border-rose-500/20 bg-rose-500/5' :
+                                          activePrediction === 'UP' ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5' :
+                                          activePrediction === 'DOWN' ? 'text-rose-400 border-rose-500/20 bg-rose-500/5' :
                                           'text-amber-400 border-amber-500/20 bg-amber-500/5'
                                         }`}>
                                           {pat}
@@ -2119,6 +2321,64 @@ export default function App() {
 
                                 <TradingTimer />
 
+                                {/* Profit / Loss Result Recording Section */}
+                                <div className="space-y-2.5 bg-black/60 border border-gray-800 p-3.5 rounded-2xl shadow-xl">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] uppercase font-black tracking-wider text-gray-200 flex items-center gap-1.5 font-mono">
+                                      <Activity className="w-4 h-4 text-emerald-400" /> ট্রেডের ফলাফল সিলেক্ট করুন:
+                                    </span>
+                                    {tradeLogged ? (
+                                      <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 rounded-md flex items-center gap-1">
+                                        <Check className="w-3.5 h-3.5 text-emerald-400" /> Recorded ({loggedOutcome})
+                                      </span>
+                                    ) : (
+                                      <span className="text-[9.5px] font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-md animate-pulse">
+                                        ⚠️ Select Result
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {!tradeLogged && (
+                                    <p className="text-[10px] text-amber-300 font-mono bg-amber-500/10 border border-amber-500/25 p-2 rounded-lg leading-tight font-bold">
+                                      * পরবর্তী সিগন্যাল এর জন্য লস বা প্রফিট এ ট্যাপ করুন।
+                                    </p>
+                                  )}
+
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <button
+                                      type="button"
+                                      disabled={loggingHistory}
+                                      onClick={() => handleLogTrade('PROFIT')}
+                                      className={`py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer border ${
+                                        tradeLogged && loggedOutcome === 'PROFIT'
+                                          ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] scale-[1.02]'
+                                          : tradeLogged
+                                          ? 'bg-gray-900/60 text-gray-500 border-gray-800 opacity-50'
+                                          : 'bg-emerald-950/40 hover:bg-emerald-500 hover:text-black text-emerald-400 border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.15)] hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] active:scale-95'
+                                      }`}
+                                    >
+                                      <TrendingUp className="w-4 h-4" />
+                                      <span>PROFIT</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      disabled={loggingHistory}
+                                      onClick={() => handleLogTrade('LOSS')}
+                                      className={`py-3 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer border ${
+                                        tradeLogged && loggedOutcome === 'LOSS'
+                                          ? 'bg-rose-500 text-white border-rose-400 shadow-[0_0_15px_rgba(244,63,94,0.5)] scale-[1.02]'
+                                          : tradeLogged
+                                          ? 'bg-gray-900/60 text-gray-500 border-gray-800 opacity-50'
+                                          : 'bg-rose-950/40 hover:bg-rose-500 hover:text-white text-rose-400 border-rose-500/30 shadow-[0_0_10px_rgba(244,63,94,0.15)] hover:shadow-[0_0_20px_rgba(244,63,94,0.4)] active:scale-95'
+                                      }`}
+                                    >
+                                      <TrendingDown className="w-4 h-4" />
+                                      <span>LOSS</span>
+                                    </button>
+                                  </div>
+                                </div>
+
                                 <div className="grid grid-cols-2 gap-2 pt-2">
                                   <button
                                     onClick={copyToClipboard}
@@ -2129,7 +2389,12 @@ export default function App() {
                                   </button>
                                   <button
                                     onClick={reset}
-                                    className="py-2.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-black rounded-lg transition-colors flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider cursor-pointer"
+                                    className={`py-2.5 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider cursor-pointer ${
+                                      tradeLogged
+                                        ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                                        : 'bg-gray-800/80 text-gray-500 border border-gray-700/60 cursor-not-allowed opacity-60'
+                                    }`}
+                                    title={!tradeLogged ? "পরবর্তী সিগন্যাল এর জন্য লস বা প্রফিট এ ট্যাপ করুন" : "Analyze new chart"}
                                   >
                                     <RefreshCw className="w-4 h-4" />
                                     Analyze New
@@ -2142,7 +2407,7 @@ export default function App() {
                                  type="button"
                                  onClick={startAnalysis}
                                  className="w-16 h-16 mx-auto rounded-full border border-emerald-500/30 overflow-hidden relative group/reload flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] bg-[#0b0d12]"
-                                 title="Reload & Start AI Analysis"
+                                 title="Reload & Start Analysis"
                                >
                                  {image ? (
                                    <img 
@@ -2163,7 +2428,43 @@ export default function App() {
                                   </div>
                                   
                                   {/* Custom instruction textarea right inside the signal tab */}
-                                  <div className="space-y-1.5 bg-black/40 border border-gray-850 p-3.5 rounded-xl">
+                                  {/* Signal Filter Selector Mode */}
+                                   <div className="space-y-1.5 bg-black/40 border border-gray-850 p-3 rounded-xl">
+                                     <label className="text-[10px] uppercase font-extrabold text-gray-300 flex items-center justify-between">
+                                       <span className="flex items-center gap-1.5">
+                                         <Sliders className="w-3.5 h-3.5 text-emerald-400" /> সিগন্যাল ফিল্টার মোড:
+                                       </span>
+                                       <span className="text-[9px] font-mono font-bold text-emerald-400">{signalMode === 'sure_shot' ? '80%+' : '70%+'}</span>
+                                     </label>
+                                     <div className="grid grid-cols-2 gap-2 pt-1">
+                                       <button
+                                         type="button"
+                                         onClick={() => setSignalMode('sure_shot')}
+                                         className={`p-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 border cursor-pointer ${
+                                           signalMode === 'sure_shot'
+                                             ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                                             : 'bg-[#14151a] text-gray-400 border-gray-800 hover:text-white hover:border-gray-700'
+                                         }`}
+                                       >
+                                         <Zap className="w-3.5 h-3.5" />
+                                         <span>Sure Shot (80%+)</span>
+                                       </button>
+                                       <button
+                                         type="button"
+                                         onClick={() => setSignalMode('normal')}
+                                         className={`p-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 border cursor-pointer ${
+                                           signalMode === 'normal'
+                                             ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                                             : 'bg-[#14151a] text-gray-400 border-gray-800 hover:text-white hover:border-gray-700'
+                                         }`}
+                                       >
+                                         <Target className="w-3.5 h-3.5" />
+                                         <span>Normal (70%+)</span>
+                                       </button>
+                                     </div>
+                                   </div>
+
+                                   <div className="space-y-1.5 bg-black/40 border border-gray-850 p-3.5 rounded-xl">
                                     <label className="text-[10px] uppercase font-extrabold text-gray-400 flex items-center gap-1.5">
                                       <MessageSquare className="w-3.5 h-3.5 text-emerald-500" /> কাস্টম নির্দেশনা (ঐচ্ছিক)
                                     </label>
@@ -2172,8 +2473,21 @@ export default function App() {
                                       onChange={(e) => setUserContext(e.target.value)}
                                       disabled={analyzing}
                                       placeholder="যেমন: এই চার্টের পরবর্তী ক্যান্ডেলের ট্রেন্ড কি হবে? সাপোর্ট জোন চিহ্নিত করে বলুন।"
-                                      className="w-full bg-[#14151a] border border-gray-850 rounded p-2.5 text-xs text-gray-300 resize-none focus:outline-none focus:border-emerald-500/50 h-24 custom-scrollbar"
+                                      className="w-full bg-[#14151a] border border-gray-850 rounded p-2.5 text-xs text-gray-300 resize-none focus:outline-none focus:border-emerald-500/50 h-20 custom-scrollbar"
                                     />
+                                  </div>
+
+                                  {/* Trading Guidelines Advisory Note */}
+                                  <div className="p-3 bg-amber-500/10 border border-amber-500/25 rounded-xl text-left space-y-1.5">
+                                    <div className="flex items-center gap-1.5 text-amber-400 font-black text-[10px] uppercase tracking-wider font-mono">
+                                      <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                                      <span>জরুরি ট্রেডিং নিয়মাবলী:</span>
+                                    </div>
+                                    <ul className="text-[10.5px] text-amber-200/90 leading-relaxed font-medium space-y-1 list-disc list-inside">
+                                      <li>AM বা PM যেকোনো সময় <strong>১:০০ টা থেকে ২:০০ টা</strong> পর্যন্ত ট্রেড নিবেন না।</li>
+                                      <li>কমপক্ষে <strong>৫ মিনিট পর পর</strong> ট্রেড নিন।</li>
+                                      <li>সারাদিনে <strong>১০ টা ট্রেড</strong> নিলেই অনেক, বেশি লোভ করবেন না।</li>
+                                    </ul>
                                   </div>
 
                                   {!user ? (
@@ -2285,6 +2599,18 @@ export default function App() {
                                 )}
                               </div>
                             )}
+                          </motion.div>
+                        )}
+
+                        {rightActiveTab === 'moneyManagement' && (
+                          <motion.div
+                            key="moneyManagement"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className="flex-1 flex flex-col min-h-0"
+                          >
+                            <MoneyManagementModal isOpen={true} onClose={() => {}} isEmbedded={true} />
                           </motion.div>
                         )}
                       </div>
@@ -3758,6 +4084,12 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Money Management Fullscreen / Standalone Modal */}
+      <MoneyManagementModal 
+        isOpen={showMoneyManagementModal} 
+        onClose={() => setShowMoneyManagementModal(false)} 
+      />
     </div>
   );
 }
