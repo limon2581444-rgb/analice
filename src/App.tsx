@@ -1291,8 +1291,8 @@ export default function App() {
         }
       }
     } catch (err: any) {
-      console.error(err);
-      setError(`ডেভেলপার একটিভ না (Developer not active)`);
+      console.error("Analysis Error:", err);
+      setError(err?.message || "সিগন্যাল তৈরি করতে সমস্যা হয়েছে। দয়া করে আবার চেষ্টা করুন।");
     } finally {
       setAnalyzing(false);
       setGlobalLoading(false);

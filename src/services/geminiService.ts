@@ -11,13 +11,13 @@ export async function analyzeChartImage(base64Image: string, mimeType: string, u
   const clientApiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
 
   try {
-    // 1. Try to use the standard server endpoint first with a strict 6 second timeout
+    // 1. Try to use the standard server endpoint first with a 12 second timeout
     const response = await fetch('/api/analyze', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(12000),
       body: JSON.stringify({
         image: base64Image,
         mimeType,
