@@ -195,8 +195,9 @@ async function startServer() {
       `;
 
       const modelsToTry = [
-        "gemini-2.5-flash",
-        "gemini-1.5-flash"
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-flash-latest"
       ];
       let text = "";
       let lastError = null;
@@ -212,7 +213,7 @@ async function startServer() {
             headers: {
               'Content-Type': 'application/json'
             },
-            signal: AbortSignal.timeout(3500),
+            signal: AbortSignal.timeout(8000),
             body: JSON.stringify({
               contents: [
                 {
