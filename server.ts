@@ -41,6 +41,14 @@ async function startServer() {
   app.post("/api/analyze", async (req, res) => {
     const { image, mimeType, userContext } = req.body;
 
+    let finalMimeType = mimeType || 'image/jpeg';
+    if (image && typeof image === 'string' && image.startsWith('data:')) {
+      const mimeMatch = image.match(/^data:(image\/[a-zA-Z+]+);base64,/);
+      if (mimeMatch) {
+        finalMimeType = mimeMatch[1];
+      }
+    }
+
     let finalUserPrompt = userContext || "";
     let extractedPrice: string | null = null;
     
@@ -223,7 +231,7 @@ async function startServer() {
                     {
                       inlineData: {
                         data: base64Data,
-                        mimeType,
+                        mimeType: finalMimeType,
                       },
                     },
                   ],

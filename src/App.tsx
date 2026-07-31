@@ -1216,7 +1216,8 @@ export default function App() {
     setGlobalLoading(true);
     setError(null);
     try {
-      const data = await analyzeChartImage(image, "image/png", userContext);
+      const detectedMime = (image && image.includes('image/jpeg')) ? 'image/jpeg' : 'image/png';
+      const data = await analyzeChartImage(image, detectedMime, userContext);
       
       // Force neutral prediction if confidence is less than 65% to ensure safety rule
       if (data && data.confidence < 65 && (data.prediction === 'UP' || data.prediction === 'DOWN')) {

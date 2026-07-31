@@ -7,20 +7,29 @@ export interface AnalysisResult {
 }
 
 export async function analyzeChartImage(base64Image: string, mimeType: string, userContext?: string): Promise<AnalysisResult> {
+  // Auto-detect correct mimeType if image data url contains it
+  let realMimeType = mimeType || 'image/jpeg';
+  if (base64Image && base64Image.startsWith('data:')) {
+    const match = base64Image.match(/^data:(image\/[a-zA-Z+]+);base64,/);
+    if (match) {
+      realMimeType = match[1];
+    }
+  }
+
   // Check if a client-side API key is available
   const clientApiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
 
   try {
-    // 1. Try to use the standard server endpoint first with a 12 second timeout
+    // 1. Try to use the standard server endpoint first with a 10 second timeout
     const response = await fetch('/api/analyze', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(10000),
       body: JSON.stringify({
         image: base64Image,
-        mimeType,
+        mimeType: realMimeType,
         userContext,
       }),
     });
