@@ -221,7 +221,7 @@ async function startServer() {
             headers: {
               'Content-Type': 'application/json'
             },
-            signal: AbortSignal.timeout(8000),
+            signal: AbortSignal.timeout(4000),
             body: JSON.stringify({
               contents: [
                 {

@@ -814,7 +814,9 @@ export default function App() {
   const compressAndGetBase64 = (dataUrl: string, maxWidth = 600, maxHeight = 600): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
-      img.crossOrigin = "anonymous";
+      if (!dataUrl.startsWith("data:")) {
+        img.crossOrigin = "anonymous";
+      }
       img.src = dataUrl;
       img.onload = () => {
         let width = img.width;
