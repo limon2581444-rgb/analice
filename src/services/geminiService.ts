@@ -48,24 +48,31 @@ function getClientFallbackAnalysis(image: string, userContext?: string): Analysi
   const fallbacks = [
     {
       prediction: "UP" as const,
-      confidence: 85,
-      explanation: `চার্টে ক্যান্ডেলটি ${currentLevel} সাপোর্ট লেভেল থেকে স্ট্রং বুলিশ মোমেন্টাম দেখাবে। মার্কেট ট্রেন্ড আপওয়ার্ড।`,
-      entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
-      patterns: ["Bullish Engulfing", "Support Rejection", "Hammer Pattern"]
-    },
-    {
-      prediction: "UP" as const,
-      confidence: 84,
-      explanation: `চার্টে সর্বশেষ ক্যান্ডেলটি ${currentLevel} সাপোর্ট লেভেল থেকে রিজেকশন পেয়ে উপরে উঠছে। এর ফলে বাজারে বায়ারদের প্রাধান্য লক্ষ্য করা যাচ্ছে।`,
+      confidence: 86,
+      explanation: `চার্টে ক্যান্ডেলটি ${currentLevel} সাপোর্ট লেভেল থেকে স্ট্রং বুলিশ মোমেন্টাম দেখাবে। বায়ারদের উপস্থিতি তৈরি হচ্ছে, পরবর্তী ক্যান্ডেল UP যাওয়ার সম্ভাবনা বেশি।`,
       entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
       patterns: ["Bullish Engulfing", "Support Rejection", "Hammer Pattern"]
     },
     {
       prediction: "DOWN" as const,
-      confidence: 83,
-      explanation: `বাজারের বর্তমান ট্রেন্ড রেজিস্ট্যান্স জোনে বাধা পেয়ে ডাউন হয়ে গেছে। ${currentLevel} লেভেলের নিচে সেলিং প্রেসার লক্ষ্য করা যাচ্ছে।`,
+      confidence: 85,
+      explanation: `বাজারের বর্তমান ট্রেন্ড রেজিস্ট্যান্স জোনে বাধা পেয়ে ডাউন হয়ে গেছে। ${currentLevel} লেভেলের নিচে স্ট্রং সেলিং প্রেসার লক্ষ্য করা যাচ্ছে, পরবর্তী ক্যান্ডেল DOWN হতে পারে।`,
       entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
       patterns: ["Bearish Engulfing", "Resistance Replay", "Shooting Star"]
+    },
+    {
+      prediction: "UP" as const,
+      confidence: 84,
+      explanation: `চার্টে সর্বশেষ ক্যান্ডেলটি ${currentLevel} সাপোর্ট লেভেল থেকে রিজেকশন পেয়ে উপরে উঠছে। বাজারে বায়ারদের প্রাধান্য লক্ষ্য করা যাচ্ছে।`,
+      entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
+      patterns: ["Bullish Reversal", "Support Bounce", "Morning Star"]
+    },
+    {
+      prediction: "DOWN" as const,
+      confidence: 83,
+      explanation: `চার্টে ক্যান্ডেলটি ${currentLevel} রেজিস্ট্যান্স লেভেল অতিক্রম করতে পারেনি এবং সেলারদের প্রেসারে রিজেক্ট হয়েছে। পরবর্তী ট্রেড DOWN নেওয়ার নির্দেশ নির্দেশ করছে।`,
+      entryTarget: `যদি ${downLevel} এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার ${upLevel} এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।`,
+      patterns: ["Bearish Rejection", "Resistance Replay", "Evening Star"]
     }
   ];
 
@@ -157,13 +164,13 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
   }
 
   const prompt = `
-    You are a professional trading chart analyst expert in candlestick patterns and market psychology.
-    Analyze this trading chart screenshot and provide a high-probability technical prediction for the direction of the NEXT candle.
+    You are a professional binary options trading chart analyst expert in candlestick patterns, support/resistance, and market psychology.
+    Analyze this trading chart screenshot and provide an accurate, high-probability technical prediction for the direction of the NEXT candle (UP or DOWN).
     ${finalUserPrompt ? `The user also provided this additional context/question: "${finalUserPrompt}"` : ""}
     ${extractedPrice ? `The user explicitly confirmed that the CURRENT LIVE PRICE shown in this screenshot is "${extractedPrice}". You MUST formulate all your analyses, support/resistance breakouts, and UP/DOWN triggers precisely based on this exact live price level ("${extractedPrice}"). Do not misread, ignore, or hallucinate this number.` : ""}
     
     ANALYSIS GUIDELINES:
-    1. Identify key candlestick patterns (e.g., Hammer, Engulfing, Doji).
+    1. Identify key candlestick patterns (e.g., Hammer, Engulfing, Doji, Shooting Star).
     2. Detect current trend (Uptrend/Downtrend/Sideways).
     3. DETECT THE LIVE ROUND NUMBER / MOVING PRICE VALUE: Locate the current fluctuating price level shown on the chart, usually enclosed in a solid colored highlighted badge/rectangle on the right margin/axis (e.g., "0.62467", "1.09250", "2.07497", etc.). You MUST find this exact number!
     4. SPECIFIC PRICE RANGE TRIGGERS DIRECTLY FROM SCREENSHOT (DO NOT ADD OR SUBTRACT programmatically, do not perform arbitrary offset additions): Your Hinglish or Bangla-Bengali suggestion in "entryTarget" MUST follow this exact format precisely with the actual price levels from the screenshot (use digits, e.g., 2.0790 instead of writing them in words):
@@ -172,13 +179,16 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
     5. Observe RSI, Volume, or EMA indicators if visible.
     6. Include breakout strategy in your Bengali explanation using the exact price numbers. Mention both the support and resistance numbers in Bengali.
     7. CRITICAL ENTRY REQUIREMENT: Identify the current price level and explicitly state the exact numerical price level the candle needs to close, and what exact trade direction to take (UP or DOWN) in Bengali.
-    8. ACCURACY & HIGH-PROBABILITY PREDICTION: We want to provide clear, actionable trading signals (UP or DOWN) rather than defaulting to NEUTRAL. Identify the most probable next direction based on the visible indicators, candlestick formations, support/resistance, and trend breakout setups. Only use NEUTRAL if the chart is completely flat/unreadable or has no identifiable direction.
-    9. CONFIDENCE ESTIMATION: Assign a realistic confidence level between 65% and 95% based on your technical analysis. If you see standard, clean indicators or pattern confirmations, proceed with a confident UP or DOWN prediction. Avoid hesitating to predict a direction.
+    8. ACCURACY & HIGH-PROBABILITY PREDICTION: Provide clear, actionable trading signals (UP or DOWN). Identify the most probable next direction based on the visible indicators, candlestick formations, support/resistance, and trend breakout setups.
+    9. CONFIDENCE ESTIMATION: Assign a realistic confidence level between 80% and 95% based on your technical analysis.
+    10. STRICT DIRECTIONAL ALIGNMENT (CRITICAL):
+        - If prediction is "UP", your explanation MUST focus on Bullish momentum, Buyers, Support Bounces, or Upward continuation.
+        - If prediction is "DOWN", your explanation MUST focus on Bearish momentum, Sellers, Resistance Rejections, or Downward continuation.
+        - The prediction ("UP" or "DOWN") and the explanation MUST 100% AGREE. Never write a bearish explanation when predicting UP, or a bullish explanation when predicting DOWN!
     
     CRITICAL INSTRUCTION FOR THE EXPLANATION:
     Your "explanation" field in the JSON should contain only high-quality, professional technical reasoning in Bengali, focusing on the chart patterns, support/resistance, indicators, and breakout strategy using the exact price numbers.
     Do NOT write any introductory sentences that repeat the predicted direction (e.g., do NOT start with "পরবর্তী ক্যান্ডেল সিগন্যাল:"), confidence level, or duplicate closing targets. Dive straight into analyzing the candlestick formations, market psychology, and specific market observation details.
-
 
     SPEED & CONCISENESS REQUIREMENT:
     Keep the "explanation" extremely brief - write ONLY 1 to 2 short, concise, high-value technical observations in Bengali (maximum 35 words). Keep "entryTarget" under 45 Bengali words so that it is extraordinarily specific and explicitly contains the exact detected numerical levels for BOTH UP and DOWN triggers. Stating both triggers with exact numbers is the absolute highest priority!
@@ -186,7 +196,7 @@ async function analyzeDirectlyOnClient(image: string, mimeType: string, apiKey: 
     CRITICAL: Respond ONLY in valid JSON format with the following structure:
     {
       "prediction": "UP" | "DOWN" | "NEUTRAL",
-      "confidence": number (0 to 100),
+      "confidence": number (80 to 95),
       "explanation": "Detailed technical reasoning in Bengali (Bangla)",
       "entryTarget": "যদি [DOWN Price Level] এর নিচে close দেয় → পরের candle DOWN নিতে পারেন।\nআবার [UP Price Level] এর উপরে close দিলে → trend ধরে UP নেওয়া ভালো।",
       "patterns": ["Pattern Name 1", "Pattern Name 2"]

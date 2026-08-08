@@ -1001,11 +1001,12 @@ export default function App() {
   };
 
   const handleGoogleLogin = async () => {
+    if (globalLoading) return;
     setGlobalLoading(true);
     try {
       await loginWithGoogle();
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.warn("Google login failed or closed:", err?.message || err);
     } finally {
       setGlobalLoading(false);
     }

@@ -8,13 +8,32 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
+let isAuthInProgress = false;
+
 export const loginWithGoogle = async () => {
+  if (isAuthInProgress) {
+    console.warn("Authentication popup is already open or in progress.");
+    return null;
+  }
+  isAuthInProgress = true;
   try {
     const result = await signInWithPopup(auth, googleProvider);
     return result.user;
-  } catch (error) {
+  } catch (error: any) {
+    const code = error?.code || error?.message || "";
+    if (
+      code.includes("cancelled-popup-request") ||
+      code.includes("popup-closed-by-user") ||
+      code.includes("auth/cancelled-popup-request") ||
+      code.includes("auth/popup-closed-by-user")
+    ) {
+      console.log("Google sign-in popup was cancelled or closed.");
+      return null;
+    }
     console.error("Login Error:", error);
     throw error;
+  } finally {
+    isAuthInProgress = false;
   }
 };
 
