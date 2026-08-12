@@ -1552,19 +1552,19 @@ export default function App() {
             <div className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">Status: <span className="text-emerald-400">Signal Active</span></div>
           </div>
           
-          <div className="flex items-center gap-1.5 md:gap-3 px-2.5 py-1.5 border-2 border-emerald-500/60 bg-emerald-500/5 rounded-2xl shadow-[0_0_20px_rgba(16,185,129,0.25)]">
+          <div className="flex items-center gap-1.5 md:gap-3 px-2 py-1 border border-emerald-500/50 bg-emerald-500/5 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.2)]">
             {/* Money Management Button with Green Brackets */}
-            <div className="flex items-center gap-1 bg-emerald-500/10 border-2 border-emerald-500/60 p-1 rounded-2xl shadow-[0_0_20px_rgba(16,185,129,0.35)]">
-              <span className="text-emerald-400 font-mono font-black text-base sm:text-lg select-none pl-1">[</span>
+            <div className="flex items-center gap-0.5 bg-emerald-500/10 border border-emerald-500/50 p-0.5 rounded-xl shadow-[0_0_12px_rgba(16,185,129,0.25)]">
+              <span className="text-emerald-400 font-mono font-black text-xs sm:text-sm select-none pl-0.5">[</span>
               <button
                 onClick={() => setShowMoneyManagementModal(true)}
-                className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1.5 sm:py-2 bg-emerald-500 hover:bg-emerald-400 border border-emerald-400 rounded-xl text-xs sm:text-sm font-black text-black transition-all uppercase tracking-wider shrink-0 shadow-[0_0_15px_rgba(16,185,129,0.5)] cursor-pointer active:scale-95"
+                className="flex items-center gap-1 px-2 sm:px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 border border-emerald-400 rounded-lg text-[10px] sm:text-xs font-black text-black transition-all uppercase tracking-wider shrink-0 shadow-[0_0_10px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95"
                 title="মানি ম্যানেজমেন্ট প্ল্যান ও তালিকা (Money Management)"
               >
-                <DollarSign className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-black font-black" />
+                <DollarSign className="w-3.5 h-3.5 text-black font-black" />
                 <span className="whitespace-nowrap">মানি ম্যানেজমেন্ট</span>
               </button>
-              <span className="text-emerald-400 font-mono font-black text-base sm:text-lg select-none pr-1">]</span>
+              <span className="text-emerald-400 font-mono font-black text-xs sm:text-sm select-none pr-0.5">]</span>
             </div>
 
             {/* Sound Level Alert Control */}
