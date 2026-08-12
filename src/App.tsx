@@ -1552,16 +1552,20 @@ export default function App() {
             <div className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">Status: <span className="text-emerald-400">Signal Active</span></div>
           </div>
           
-          <div className="flex items-center gap-1.5 md:gap-3 pl-1.5 md:pl-4 border-l border-gray-800">
-            {/* Money Management Button */}
-            <button
-              onClick={() => setShowMoneyManagementModal(true)}
-              className="flex items-center gap-1 sm:gap-1.5 px-2 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 hover:border-emerald-500/60 rounded-xl text-[9px] sm:text-[10px] font-black text-emerald-400 transition-all uppercase tracking-wider shrink-0 shadow-[0_0_12px_rgba(16,185,129,0.15)] cursor-pointer active:scale-95"
-              title="মানি ম্যানেজমেন্ট প্ল্যান ও তালিকা (Money Management)"
-            >
-              <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="whitespace-nowrap">মানি ম্যানেজমেন্ট</span>
-            </button>
+          <div className="flex items-center gap-1.5 md:gap-3 px-2.5 py-1.5 border-2 border-emerald-500/60 bg-emerald-500/5 rounded-2xl shadow-[0_0_20px_rgba(16,185,129,0.25)]">
+            {/* Money Management Button with Green Brackets */}
+            <div className="flex items-center gap-1 bg-emerald-500/10 border-2 border-emerald-500/60 p-1 rounded-2xl shadow-[0_0_20px_rgba(16,185,129,0.35)]">
+              <span className="text-emerald-400 font-mono font-black text-base sm:text-lg select-none pl-1">[</span>
+              <button
+                onClick={() => setShowMoneyManagementModal(true)}
+                className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1.5 sm:py-2 bg-emerald-500 hover:bg-emerald-400 border border-emerald-400 rounded-xl text-xs sm:text-sm font-black text-black transition-all uppercase tracking-wider shrink-0 shadow-[0_0_15px_rgba(16,185,129,0.5)] cursor-pointer active:scale-95"
+                title="মানি ম্যানেজমেন্ট প্ল্যান ও তালিকা (Money Management)"
+              >
+                <DollarSign className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-black font-black" />
+                <span className="whitespace-nowrap">মানি ম্যানেজমেন্ট</span>
+              </button>
+              <span className="text-emerald-400 font-mono font-black text-base sm:text-lg select-none pr-1">]</span>
+            </div>
 
             {/* Sound Level Alert Control */}
             <button
@@ -1600,10 +1604,10 @@ export default function App() {
                     ) : (
                       <button
                         onClick={() => isAdmin && handleToggleUserVerification(user.uid, userData?.subscriptionStatus || 'NONE', false)}
-                        className={`flex items-center gap-1 bg-rose-500/10 px-2.5 py-0.5 rounded-md border border-rose-500/20 text-[8px] font-bold text-rose-400 uppercase tracking-wider animate-pulse-glowing transition-all ${isAdmin ? 'hover:bg-emerald-500 hover:text-black cursor-pointer active:scale-95' : ''}`}
+                        className={`flex items-center gap-1 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/30 text-[8px] font-bold text-emerald-400 uppercase tracking-wider transition-all ${isAdmin ? 'hover:bg-emerald-500 hover:text-black cursor-pointer active:scale-95' : ''}`}
                         title={isAdmin ? 'ভেরিফাই করতে ক্লিক করুন' : undefined}
                       >
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                         Unverified
                       </button>
                     )}
@@ -1640,9 +1644,9 @@ export default function App() {
             ) : (
               <button 
                 onClick={() => setShowAuthModal(true)}
-                className="flex items-center gap-1 px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/15 rounded-full text-[8px] sm:text-[10px] font-bold text-gray-400 hover:text-white transition-all uppercase tracking-widest whitespace-nowrap"
+                className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-full text-[8px] sm:text-[10px] font-bold text-emerald-400 transition-all uppercase tracking-widest whitespace-nowrap shadow-[0_0_10px_rgba(16,185,129,0.15)]"
               >
-                <LogIn className="w-3 h-3 md:w-4 md:h-4 text-emerald-500 font-bold" />
+                <LogIn className="w-3 h-3 md:w-4 md:h-4 text-emerald-400 font-bold" />
                 Login
               </button>
             )}
@@ -1652,10 +1656,10 @@ export default function App() {
             onClick={() => setCurrentView('payment')}
             className={`flex flex-col items-center gap-0.5 px-2 md:px-4 py-1 border rounded-full text-[8px] md:text-[9px] font-bold transition-all uppercase tracking-widest shrink-0 ${
               userData?.subscriptionStatus === 'ACTIVE' 
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.1)]' 
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.2)]' 
                 : userData?.subscriptionStatus === 'PENDING'
-                ? 'bg-amber-500/10 border-amber-500/30 text-amber-500'
-                : 'bg-rose-500/10 border-rose-500/30 text-rose-500'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                : 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 hover:border-emerald-500/60 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
             }`}
           >
             <div className="flex items-center gap-1 md:gap-1.5">
