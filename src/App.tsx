@@ -444,8 +444,8 @@ export default function App() {
   const [trc20Address, setTrc20Address] = useState("");
   const [adminTrc20Address, setAdminTrc20Address] = useState("");
   const [copiedTrc, setCopiedTrc] = useState(false);
-  const [bkashNumber, setBkashNumber] = useState("01568760651");
-  const [adminBkashNumber, setAdminBkashNumber] = useState("01568760651");
+  const [bkashNumber, setBkashNumber] = useState("");
+  const [adminBkashNumber, setAdminBkashNumber] = useState("");
   const [copiedBkash, setCopiedBkash] = useState(false);
 
   // Load global payment settings on mount
@@ -456,7 +456,7 @@ export default function App() {
         const data = docSnap.data();
         setTrc20Address(data.trc20Address || "");
         setAdminTrc20Address(data.trc20Address || "");
-        const activeBkash = (data.bkashNumber && data.bkashNumber !== '1236032255') ? data.bkashNumber : "01568760651";
+        const activeBkash = (data.bkashNumber && data.bkashNumber !== '1236032255' && data.bkashNumber !== '01568760651') ? data.bkashNumber : "";
         setBkashNumber(activeBkash);
         setAdminBkashNumber(activeBkash);
       }
@@ -485,13 +485,8 @@ export default function App() {
         if (ad) {
           const configRef = doc(db, 'settings', 'payment');
           getDoc(configRef).then((configSnap) => {
-            if (configSnap.exists()) {
-              const data = configSnap.data();
-              if (data.bkashNumber !== '01568760651') {
-                updateDoc(configRef, { bkashNumber: '01568760651' }).catch(err => console.error("Error auto-updating bkash config:", err));
-              }
-            } else {
-              setDoc(configRef, { bkashNumber: '01568760651', trc20Address: 'TPAXoRZNjyn9XqwtmkV9xaTAzyeqEW2Hxy' }).catch(err => console.error("Error auto-setting bkash config:", err));
+            if (!configSnap.exists()) {
+              setDoc(configRef, { bkashNumber: '', trc20Address: 'TPAXoRZNjyn9XqwtmkV9xaTAzyeqEW2Hxy' }).catch(err => console.error("Error auto-setting payment config:", err));
             }
           }).catch(err => console.error("Error loading config during admin check:", err));
         }
@@ -1533,128 +1528,132 @@ export default function App() {
       </AnimatePresence>
 
       {/* Top Navigation Bar */}
-      <header className="h-16 md:h-18 border-b border-gray-800 flex items-center justify-between px-3 md:px-8 bg-[#0c0d10] shadow-2xl shrink-0">
-        <div className="flex items-center space-x-2 md:space-x-4 cursor-pointer shrink-0" onClick={() => {
+      <header className="h-16 md:h-18 border-b border-gray-800 flex items-center justify-between px-2 sm:px-4 md:px-8 bg-[#0c0d10] shadow-2xl shrink-0 gap-1 sm:gap-2">
+        <div className="flex items-center space-x-1.5 sm:space-x-2 md:space-x-4 cursor-pointer shrink-0" onClick={() => {
           if (isAdmin || !user || isUserSubscribed) {
             setCurrentView('analysis');
           }
         }}>
-          <div className="w-7 h-7 md:w-8 md:h-8 bg-emerald-500 rounded flex items-center justify-center shrink-0">
+          <div className="w-7 h-7 md:w-8 md:h-8 bg-emerald-500 rounded flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(16,185,129,0.3)]">
             <Activity className="w-4 h-4 md:w-5 md:h-5 text-black" />
           </div>
-          <span className="text-sm sm:text-base md:text-xl font-bold tracking-tight text-white uppercase whitespace-nowrap">
-            Korim Trader <span className="text-emerald-500">Analyst</span>
+          <span className="text-xs sm:text-base md:text-xl font-bold tracking-tight text-white uppercase whitespace-nowrap">
+            <span className="hidden xs:inline sm:inline">Korim Trader </span>
+            <span className="text-emerald-500">Analyst</span>
           </span>
         </div>
-        <div className="flex items-center space-x-2 md:space-x-6 min-w-0">
-          <div className="hidden md:flex items-center space-x-6">
+
+        <div className="flex items-center gap-1 sm:gap-2 md:gap-3 min-w-0">
+          <div className="hidden lg:flex items-center space-x-4">
             <div className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">Engine: <span className="text-emerald-400">NEURAL-GEN-4</span></div>
             <div className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">Status: <span className="text-emerald-400">Signal Active</span></div>
           </div>
           
-          <div className="flex items-center gap-1.5 md:gap-3 px-2 py-1 border border-emerald-500/50 bg-emerald-500/5 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.2)]">
-            {/* Money Management Button with Green Brackets */}
-            <div className="flex items-center gap-0.5 bg-emerald-500/10 border border-emerald-500/50 p-0.5 rounded-xl shadow-[0_0_12px_rgba(16,185,129,0.25)]">
-              <span className="text-emerald-400 font-mono font-black text-xs sm:text-sm select-none pl-0.5">[</span>
-              <button
-                onClick={() => setShowMoneyManagementModal(true)}
-                className="flex items-center gap-1 px-2 sm:px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 border border-emerald-400 rounded-lg text-[10px] sm:text-xs font-black text-black transition-all uppercase tracking-wider shrink-0 shadow-[0_0_10px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95"
-                title="মানি ম্যানেজমেন্ট প্ল্যান ও তালিকা (Money Management)"
-              >
-                <DollarSign className="w-3.5 h-3.5 text-black font-black" />
-                <span className="whitespace-nowrap">মানি ম্যানেজমেন্ট</span>
-              </button>
-              <span className="text-emerald-400 font-mono font-black text-xs sm:text-sm select-none pr-0.5">]</span>
-            </div>
-
-            {/* Sound Level Alert Control */}
+          {/* Money Management Button with Green Brackets */}
+          <div className="flex items-center gap-0.5 bg-emerald-500/10 border border-emerald-500/50 p-0.5 rounded-xl shadow-[0_0_12px_rgba(16,185,129,0.25)] shrink-0">
+            <span className="text-emerald-400 font-mono font-black text-xs sm:text-sm select-none pl-0.5">[</span>
             <button
-              onClick={toggleSound}
-              className={`p-1.5 sm:p-2 rounded-lg border transition-all shrink-0 ${
-                soundEnabled 
-                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20' 
-                  : 'bg-rose-500/10 border-rose-500/20 text-rose-400 hover:bg-rose-500/20'
-              }`}
-              title={soundEnabled ? 'Mute Alerts (সাউন্ড বন্ধ করুন)' : 'Unmute Alerts (সাউন্ড চালু করুন)'}
+              onClick={() => setShowMoneyManagementModal(true)}
+              className="flex items-center gap-1 px-1.5 sm:px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 border border-emerald-400 rounded-lg text-[9px] sm:text-xs font-black text-black transition-all uppercase tracking-wider shrink-0 shadow-[0_0_10px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95"
+              title="মানি ম্যানেজমেন্ট প্ল্যান ও তালিকা (Money Management)"
             >
-              {soundEnabled ? (
-                <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-pulse" />
-              ) : (
-                <VolumeX className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              )}
+              <DollarSign className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-black font-black" />
+              <span className="whitespace-nowrap hidden sm:inline">মানি ম্যানেজমেন্ট</span>
+              <span className="whitespace-nowrap inline sm:hidden text-[9px]">MM</span>
             </button>
-
-            {user ? (
-              <div className="flex items-center gap-1.5 md:gap-3">
-                <div className="flex flex-col items-end">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-white uppercase tracking-wider">
-                      {userData?.customDisplayName || userData?.displayName || user.displayName || 'Trident User'}
-                      {userData?.userSerial && ` #${userData.userSerial}`}
-                    </span>
-                    {userData?.subscriptionStatus === 'ACTIVE' ? (
-                      <button
-                        onClick={() => isAdmin && handleToggleUserVerification(user.uid, userData?.subscriptionStatus || 'NONE', false)}
-                        className={`flex items-center gap-1 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/20 text-[8px] font-bold text-emerald-400 uppercase tracking-wider transition-all ${isAdmin ? 'hover:bg-rose-500 hover:text-white cursor-pointer active:scale-95' : ''}`}
-                        title={isAdmin ? 'ভেরিফিকেশন স্ট্যাটাস পরিবর্তন করতে ক্লিক করুন' : undefined}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        Verified
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => isAdmin && handleToggleUserVerification(user.uid, userData?.subscriptionStatus || 'NONE', false)}
-                        className={`flex items-center gap-1 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/30 text-[8px] font-bold text-emerald-400 uppercase tracking-wider transition-all ${isAdmin ? 'hover:bg-emerald-500 hover:text-black cursor-pointer active:scale-95' : ''}`}
-                        title={isAdmin ? 'ভেরিফাই করতে ক্লিক করুন' : undefined}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        Unverified
-                      </button>
-                    )}
-                  </div>
-                  <span className="text-[9px] text-gray-500 truncate max-w-[120px]">{user.email}</span>
-                </div>
-                <div className="flex items-center gap-1 md:gap-2">
-                  {isAdmin && (
-                    <button 
-                      onClick={() => setCurrentView('adminPanel')}
-                      className="p-1 sm:p-2 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-black rounded-lg transition-all border border-emerald-500/20 shrink-0"
-                      title="Admin Control"
-                    >
-                      <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    </button>
-                  )}
-                  {user.photoURL ? (
-                    <img src={user.photoURL} alt="Profile" className="w-6 h-6 md:w-8 md:h-8 rounded-full border border-emerald-500/30 shrink-0" />
-                  ) : (
-                    <div className="w-6 h-6 md:w-8 md:h-8 rounded-full bg-gray-800 flex items-center justify-center border border-gray-700 shrink-0">
-                      <User className="w-3 h-3 md:w-4 md:h-4 text-gray-400" />
-                    </div>
-                  )}
-                  <button 
-                    onClick={handleLogout}
-                    className="p-1 md:p-1.5 bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white rounded-lg transition-all flex items-center gap-1 group shrink-0"
-                    title="Logout"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span className="text-[9px] font-black uppercase hidden sm:block">Sign Out</span>
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button 
-                onClick={() => setShowAuthModal(true)}
-                className="flex items-center gap-1 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-full text-[8px] sm:text-[10px] font-bold text-emerald-400 transition-all uppercase tracking-widest whitespace-nowrap shadow-[0_0_10px_rgba(16,185,129,0.15)]"
-              >
-                <LogIn className="w-3 h-3 md:w-4 md:h-4 text-emerald-400 font-bold" />
-                Login
-              </button>
-            )}
+            <span className="text-emerald-400 font-mono font-black text-xs sm:text-sm select-none pr-0.5">]</span>
           </div>
 
+          {/* Sound Level Alert Control */}
+          <button
+            onClick={toggleSound}
+            className={`p-1.5 sm:p-2 rounded-lg border transition-all shrink-0 ${
+              soundEnabled 
+                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20' 
+                : 'bg-rose-500/10 border-rose-500/20 text-rose-400 hover:bg-rose-500/20'
+            }`}
+            title={soundEnabled ? 'Mute Alerts (সাউন্ড বন্ধ করুন)' : 'Unmute Alerts (সাউন্ড চালু করুন)'}
+          >
+            {soundEnabled ? (
+              <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-pulse" />
+            ) : (
+              <VolumeX className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            )}
+          </button>
+
+          {/* Primary Login Button or User Profile */}
+          {user ? (
+            <div className="flex items-center gap-1 sm:gap-2 md:gap-3 shrink-0">
+              <div className="flex flex-col items-end">
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <span className="text-[9px] sm:text-[10px] font-bold text-white uppercase tracking-wider truncate max-w-[65px] sm:max-w-[120px]">
+                    {userData?.customDisplayName || userData?.displayName || user.displayName || 'Trident User'}
+                    {userData?.userSerial && ` #${userData.userSerial}`}
+                  </span>
+                  {userData?.subscriptionStatus === 'ACTIVE' ? (
+                    <button
+                      onClick={() => isAdmin && handleToggleUserVerification(user.uid, userData?.subscriptionStatus || 'NONE', false)}
+                      className={`flex items-center gap-1 bg-emerald-500/10 px-1.5 sm:px-2.5 py-0.5 rounded-md border border-emerald-500/20 text-[7px] sm:text-[8px] font-bold text-emerald-400 uppercase tracking-wider transition-all ${isAdmin ? 'hover:bg-rose-500 hover:text-white cursor-pointer active:scale-95' : ''}`}
+                      title={isAdmin ? 'ভেরিফিকেশন স্ট্যাটাস পরিবর্তন করতে ক্লিক করুন' : undefined}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="hidden xs:inline">Verified</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => isAdmin && handleToggleUserVerification(user.uid, userData?.subscriptionStatus || 'NONE', false)}
+                      className={`flex items-center gap-1 bg-emerald-500/10 px-1.5 sm:px-2.5 py-0.5 rounded-md border border-emerald-500/30 text-[7px] sm:text-[8px] font-bold text-emerald-400 uppercase tracking-wider transition-all ${isAdmin ? 'hover:bg-emerald-500 hover:text-black cursor-pointer active:scale-95' : ''}`}
+                      title={isAdmin ? 'ভেরিফাই করতে ক্লিক করুন' : undefined}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      <span className="hidden xs:inline">Unverified</span>
+                    </button>
+                  )}
+                </div>
+                <span className="text-[8px] text-gray-500 truncate max-w-[90px] hidden md:block">{user.email}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                {isAdmin && (
+                  <button 
+                    onClick={() => setCurrentView('adminPanel')}
+                    className="p-1 sm:p-2 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-black rounded-lg transition-all border border-emerald-500/20 shrink-0"
+                    title="Admin Control"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  </button>
+                )}
+                {user.photoURL ? (
+                  <img src={user.photoURL} alt="Profile" className="w-6 h-6 sm:w-7 sm:h-7 rounded-full border border-emerald-500/30 shrink-0" />
+                ) : (
+                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-gray-800 flex items-center justify-center border border-gray-700 shrink-0">
+                    <User className="w-3 h-3 text-gray-400" />
+                  </div>
+                )}
+                <button 
+                  onClick={handleLogout}
+                  className="p-1 sm:p-1.5 bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white rounded-lg transition-all flex items-center gap-1 group shrink-0"
+                  title="Logout"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="text-[9px] font-black uppercase hidden md:block">Sign Out</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button 
+              onClick={() => setShowAuthModal(true)}
+              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 border border-emerald-400 text-black font-black rounded-xl text-[10px] sm:text-xs uppercase tracking-wider whitespace-nowrap shadow-[0_0_15px_rgba(16,185,129,0.5)] cursor-pointer active:scale-95 transition-all shrink-0"
+              title="লগইন করতে ক্লিক করুন (Click to Login)"
+            >
+              <LogIn className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-black font-black" />
+              <span>Login</span>
+            </button>
+          )}
+
+          {/* License / Subscription Button */}
           <button 
             onClick={() => setCurrentView('payment')}
-            className={`flex flex-col items-center gap-0.5 px-2 md:px-4 py-1 border rounded-full text-[8px] md:text-[9px] font-bold transition-all uppercase tracking-widest shrink-0 ${
+            className={`flex flex-col items-center gap-0.5 px-2 sm:px-3 py-1 border rounded-full text-[8px] sm:text-[9px] font-bold transition-all uppercase tracking-widest shrink-0 ${
               userData?.subscriptionStatus === 'ACTIVE' 
                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.2)]' 
                 : userData?.subscriptionStatus === 'PENDING'
@@ -1662,11 +1661,11 @@ export default function App() {
                 : 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 hover:border-emerald-500/60 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
             }`}
           >
-            <div className="flex items-center gap-1 md:gap-1.5">
+            <div className="flex items-center gap-1">
               <CreditCard className="w-3 h-3" />
               <span className="whitespace-nowrap">
-                {userData?.subscriptionStatus === 'ACTIVE' ? 'Subscription' : 
-                 userData?.subscriptionStatus === 'PENDING' ? 'Pending' : 'Get License'}
+                {userData?.subscriptionStatus === 'ACTIVE' ? 'Sub' : 
+                 userData?.subscriptionStatus === 'PENDING' ? 'Pending' : 'License'}
               </span>
             </div>
             {userData?.subscriptionStatus === 'ACTIVE' && (
@@ -1680,7 +1679,7 @@ export default function App() {
           {image && currentView === 'analysis' && (
             <button 
               onClick={reset}
-              className="px-2.5 py-1 bg-[#1e2025] hover:bg-gray-800 border border-gray-700 rounded text-[9px] sm:text-xs font-bold text-gray-400 hover:text-white transition-colors shrink-0 uppercase tracking-wider"
+              className="px-2 py-1 bg-[#1e2025] hover:bg-gray-800 border border-gray-700 rounded text-[9px] sm:text-xs font-bold text-gray-400 hover:text-white transition-colors shrink-0 uppercase tracking-wider"
             >
               Reset
             </button>
@@ -2051,6 +2050,27 @@ export default function App() {
                 exit={{ opacity: 0, scale: 1.05 }}
                 className="w-full max-w-2xl relative z-10 space-y-4"
               >
+                {/* Mobile Login Prompt Banner if not logged in */}
+                {!user && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-between gap-3 shadow-[0_0_15px_rgba(16,185,129,0.15)]">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                        <Key className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-xs font-black text-white uppercase tracking-wider">লগইন করুন (Login)</div>
+                        <div className="text-[10px] text-gray-400 truncate">সিগন্যাল ও হিস্টোরি পেতে লগইন করুন</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowAuthModal(true)}
+                      className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black rounded-xl text-xs uppercase tracking-wider whitespace-nowrap shadow-[0_0_12px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95 transition-all shrink-0"
+                    >
+                      Login
+                    </button>
+                  </div>
+                )}
+
                 {/* Accuracy Signal Filter selector bar above upload */}
                 <div className="bg-[#0b0d12] border border-gray-800 p-3 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xl backdrop-blur-md">
                   <div className="flex items-center gap-2">
@@ -2895,9 +2915,17 @@ export default function App() {
                                  <span className="text-sm font-bold text-white">bKash (Personal)</span>
                                </div>
                              </div>
-                             <div className="text-right">
-                               <span className="text-xs font-mono font-bold text-rose-500 block">{bkashNumber}</span>
-                               <span className="text-[9px] text-gray-500 block">Personal</span>
+                             <div className="flex items-center gap-2">
+                               <span className="text-[11px] font-black uppercase tracking-wider text-gray-400">bKash</span>
+                               <span 
+                                 className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                                   paymentMethod === 'bkash'
+                                     ? 'bg-[#e2125d] text-white shadow-[0_0_15px_rgba(226,18,93,0.4)] border border-[#e2125d]'
+                                     : 'bg-white/5 border border-white/10 text-gray-400 hover:text-white'
+                                 }`}
+                               >
+                                 Personal
+                               </span>
                              </div>
                           </div>
 
@@ -2941,29 +2969,52 @@ export default function App() {
                               <div className="absolute top-0 left-0 w-1.5 h-full bg-[#e2125d]" />
                               <div className="flex justify-between items-center pl-1">
                                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                                  bKash Personal Number
+                                  {bkashNumber ? "bKash Personal Number" : "bKash Payment Gateway"}
                                 </span>
-                                <span className="px-2 py-0.5 rounded bg-[#e2125d]/10 text-[9px] font-black text-[#e2125d] uppercase tracking-widest">Send Money</span>
+                                <span className="px-2 py-0.5 rounded bg-[#e2125d]/10 text-[9px] font-black text-[#e2125d] uppercase tracking-widest">
+                                  {bkashNumber ? "Send Money" : "Support"}
+                                </span>
                               </div>
                               
-                              <div className="flex items-center justify-between bg-[#0b0d12] border border-gray-800 rounded-xl p-3.5 group/addr hover:bg-[#0c0f16] hover:border-[#e2125d]/30 transition-all">
-                                <span className="text-xs sm:text-sm font-mono font-bold text-rose-400 break-all select-all pr-2">
-                                  {bkashNumber}
-                                </span>
-                                <button 
-                                  type="button"
-                                  onClick={() => { 
-                                    navigator.clipboard.writeText(bkashNumber); 
-                                    setCopiedBkash(true); 
-                                    setTimeout(() => setCopiedBkash(false), 2000); 
-                                  }} 
-                                  className="text-[9px] sm:text-[10px] text-gray-400 hover:text-rose-300 font-bold uppercase tracking-wider transition-all shrink-0 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10 active:scale-95"
-                                >
-                                  {copiedBkash ? 'Copied' : 'Copy'}
-                                </button>
-                              </div>
+                              {bkashNumber ? (
+                                <div className="flex items-center justify-between bg-[#0b0d12] border border-gray-800 rounded-xl p-3.5 group/addr hover:bg-[#0c0f16] hover:border-[#e2125d]/30 transition-all">
+                                  <span className="text-xs sm:text-sm font-mono font-bold text-rose-400 break-all select-all pr-2">
+                                    {bkashNumber}
+                                  </span>
+                                  <button 
+                                    type="button"
+                                    onClick={() => { 
+                                      navigator.clipboard.writeText(bkashNumber); 
+                                      setCopiedBkash(true); 
+                                      setTimeout(() => setCopiedBkash(false), 2000); 
+                                    }} 
+                                    className="text-[9px] sm:text-[10px] text-gray-400 hover:text-rose-300 font-bold uppercase tracking-wider transition-all shrink-0 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10 active:scale-95 cursor-pointer"
+                                  >
+                                    {copiedBkash ? 'Copied' : 'Copy'}
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-between bg-[#0b0d12] border border-gray-800 rounded-xl p-3.5 group/addr hover:bg-[#0c0f16] hover:border-[#e2125d]/30 transition-all">
+                                  <div className="flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-[#e2125d] animate-pulse" />
+                                    <span className="text-xs sm:text-sm font-medium text-gray-300">
+                                      বিকাশ নাম্বারের জন্য লাইভ সাপোর্টে মেসেজ দিন
+                                    </span>
+                                  </div>
+                                  <button 
+                                    type="button"
+                                    onClick={() => setShowChat(true)} 
+                                    className="text-[10px] text-white font-black uppercase tracking-wider transition-all shrink-0 px-3.5 py-1.5 bg-[#e2125d] hover:bg-[#c20e4f] rounded-lg active:scale-95 shadow-[0_0_12px_rgba(226,18,93,0.4)] cursor-pointer"
+                                  >
+                                    Live Support
+                                  </button>
+                                </div>
+                              )}
                               <p className="text-[10px] text-gray-400 tracking-wide font-normal pl-1">
-                                এই বিকাশ নাম্বারে সেন্ড মানি করুন এবং আপনার সেন্ডার নাম্বার এবং ট্রানজেকশন ID নিচের বক্সে সাবমিট করুন।
+                                {bkashNumber 
+                                  ? "এই বিকাশ নাম্বারে সেন্ড মানি করুন এবং আপনার সেন্ডার নাম্বার এবং ট্রানজেকশন ID নিচের বক্সে সাবমিট করুন।"
+                                  : "সাপোর্ট থেকে বিকাশ নাম্বার নিয়ে সেন্ড মানি করুন এবং আপনার সেন্ডার নাম্বার ও ট্রানজেকশন ID নিচের বক্সে সাবমিট করুন।"
+                                }
                               </p>
                             </div>
                           )}
