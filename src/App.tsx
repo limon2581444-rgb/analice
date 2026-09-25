@@ -10,7 +10,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX, Zap, Target, Sliders, DollarSign, History } from 'lucide-react';
+import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX, Zap, Target, Sliders, DollarSign, History, Image as ImageIcon, Plus, Lock } from 'lucide-react';
 import { analyzeChartImage, AnalysisResult } from './services/geminiService';
 import { toPng } from 'html-to-image';
 import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap, saveTradeLog, getTradeLogsSnap, clearTradeLogs } from './lib/firebase';
@@ -447,6 +447,43 @@ export default function App() {
   const [bkashNumber, setBkashNumber] = useState("");
   const [adminBkashNumber, setAdminBkashNumber] = useState("");
   const [copiedBkash, setCopiedBkash] = useState(false);
+  const [isLeftDragging, setIsLeftDragging] = useState(false);
+  const [isMainDragging, setIsMainDragging] = useState(false);
+
+  // Saved uploaded chart images state
+  const [savedImages, setSavedImages] = useState<{ id: string; dataUrl: string; timestamp: number }[]>(() => {
+    try {
+      const stored = localStorage.getItem('savedChartImages');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.error("Error reading saved images:", e);
+    }
+    return [];
+  });
+
+  // Custom upload counter starting at 25796, increments with every uploaded image
+  const [uploadCounter, setUploadCounter] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem('chart_upload_counter_v1');
+      if (stored) {
+        const val = parseInt(stored, 10);
+        if (!isNaN(val) && val >= 25796) return val;
+      }
+    } catch (e) {
+      console.error("Error reading uploadCounter:", e);
+    }
+    return 25796;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('savedChartImages', JSON.stringify(savedImages.slice(0, 15)));
+    } catch (e) {
+      try {
+        localStorage.setItem('savedChartImages', JSON.stringify(savedImages.slice(0, 6)));
+      } catch (inner) {}
+    }
+  }, [savedImages]);
 
   // Load global payment settings on mount
   useEffect(() => {
@@ -848,23 +885,88 @@ export default function App() {
     });
   };
 
+  const addImagesToSaved = (dataUrls: string[]) => {
+    if (dataUrls.length === 0) return;
+    setSavedImages(prev => {
+      const newEntries = dataUrls.map((url, idx) => ({
+        id: `${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
+        dataUrl: url,
+        timestamp: Date.now() + idx
+      }));
+      const existingFiltered = prev.filter(item => !dataUrls.includes(item.dataUrl));
+      return [...newEntries, ...existingFiltered].slice(0, 20);
+    });
+    setUploadCounter(prev => {
+      const next = prev + dataUrls.length;
+      try {
+        localStorage.setItem('chart_upload_counter_v1', next.toString());
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const addImageToSaved = (dataUrl: string) => {
+    addImagesToSaved([dataUrl]);
+  };
+
+  const processMultipleFiles = async (files: FileList | File[]) => {
+    if (result && !tradeLogged) {
+      alert("পরবর্তী ইমেজ আপলোড বা বিশ্লেষণ করার আগে বর্তমান ট্রেডের ফলাফল (PROFIT অথবা LOSS) নির্বাচন করুন!");
+      return;
+    }
+    const fileList = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (fileList.length === 0) {
+      setError('দয়া করে শুধুমাত্র ইমেজ ফাইল নির্বাচন করুন (PNG, JPG, WEBP)');
+      return;
+    }
+
+    const compressedList: string[] = [];
+    for (const file of fileList) {
+      try {
+        const rawDataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const compressed = await compressAndGetBase64(rawDataUrl);
+        compressedList.push(compressed);
+      } catch (err) {
+        console.error("Error processing file:", err);
+      }
+    }
+
+    if (compressedList.length > 0) {
+      // Set the first image for immediate analysis
+      setImage(compressedList[0]);
+      setResult(null);
+      setError(null);
+
+      // Automatically save all uploaded images into gallery
+      addImagesToSaved(compressedList);
+    }
+  };
+
+  const processImageFile = async (file: File) => {
+    await processMultipleFiles([file]);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processMultipleFiles(e.target.files);
+    }
+    e.target.value = '';
+  };
+
   const handlePaste = useCallback((e: ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
 
+    const imageFiles: File[] = [];
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
         const file = items[i].getAsFile();
-        if (file) {
-          const reader = new FileReader();
-          reader.onload = async () => {
-            const compressed = await compressAndGetBase64(reader.result as string);
-            setImage(compressed);
-            setResult(null);
-            setError(null);
-          };
-          reader.readAsDataURL(file);
-        }
+        if (file) imageFiles.push(file);
       } else if (items[i].type === 'text/plain') {
         items[i].getAsString((text) => {
           // Only auto-paste text if context is currently empty or user is pasting into a non-input area
@@ -875,35 +977,16 @@ export default function App() {
         });
       }
     }
-  }, []);
+
+    if (imageFiles.length > 0) {
+      processMultipleFiles(imageFiles);
+    }
+  }, [result, tradeLogged]);
 
   useEffect(() => {
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
   }, [handlePaste]);
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (result && !tradeLogged) {
-      alert("পরবর্তী ইমেজ আপলোড বা বিশ্লেষণ করার আগে বর্তমান ট্রেডের ফলাফল (PROFIT অথবা LOSS) নির্বাচন করুন!");
-      e.target.value = '';
-      return;
-    }
-    const file = e.target.files?.[0];
-    if (file) {
-      if (!file.type.startsWith('image/')) {
-        setError('দয়া করে একটি ইমেজ ড্রপ বা সিলেক্ট করুন (PNG/JPG)');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const compressed = await compressAndGetBase64(reader.result as string);
-        setImage(compressed);
-        setResult(null);
-        setError(null);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
    const handleLogout = async () => {
     setGlobalLoading(true);
@@ -1080,8 +1163,11 @@ export default function App() {
     const passStr = authPassword.trim();
 
     // Secret Admin Access Logic (as requested)
-    if ((emailStr === "limon4444@gmail.com" || emailStr === "limon4444") && passStr === "limon0000") {
-      const fullEmail = emailStr.includes('@') ? emailStr : "limon4444@gmail.com";
+    if (
+      (emailStr === "limon4444@gmail.com" || emailStr === "limon4444" || emailStr === "limon2581444@gmail.com" || emailStr === "limon2581444") && 
+      (passStr === "limon0000" || passStr === "admin0000")
+    ) {
+      const fullEmail = emailStr.includes('@') ? emailStr : (emailStr.startsWith('limon2581444') ? "limon2581444@gmail.com" : "limon4444@gmail.com");
       setAuthLoading(true);
       try {
         // Try login first
@@ -2041,6 +2127,53 @@ export default function App() {
             <FloatingParticles />
           </div>
 
+          {/* Left-Side Quick Image Upload Box (Marked in User Screenshot) */}
+          {!image && (
+            <label
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsLeftDragging(true); }}
+              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsLeftDragging(false); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsLeftDragging(false);
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                  processMultipleFiles(e.dataTransfer.files);
+                }
+              }}
+              className={`absolute top-3 sm:top-5 left-2 sm:left-4 md:left-6 z-20 hidden min-[540px]:flex flex-col items-center justify-center w-22 sm:w-26 h-22 sm:h-26 p-2 rounded-xl bg-[#090b0e]/90 border border-dashed ${
+                isLeftDragging 
+                  ? 'border-emerald-400 bg-emerald-500/20 scale-105 shadow-[0_0_20px_rgba(16,185,129,0.35)]' 
+                  : 'border-emerald-500/35 hover:border-emerald-400 hover:bg-[#0c0f15] shadow-[0_0_12px_rgba(16,185,129,0.1)] hover:shadow-[0_0_20px_rgba(16,185,129,0.25)]'
+              } transition-all duration-300 cursor-pointer backdrop-blur-md overflow-hidden select-none active:scale-95 text-center group`}
+              title="এখানে ক্লিক করে বা ড্রপ করে সরাসরি চার্ট ইমেজ আপলোড করুন (Quick Upload)"
+            >
+              <input type="file" multiple className="hidden" onChange={handleFileUpload} accept="image/*" />
+
+              {/* Glowing Corner HUD Accents */}
+              <div className="absolute top-1.5 left-1.5 w-1.5 h-1.5 border-t border-l border-emerald-500/50 group-hover:border-emerald-400 transition-colors pointer-events-none" />
+              <div className="absolute top-1.5 right-1.5 w-1.5 h-1.5 border-t border-r border-emerald-500/50 group-hover:border-emerald-400 transition-colors pointer-events-none" />
+              <div className="absolute bottom-1.5 left-1.5 w-1.5 h-1.5 border-b border-l border-emerald-500/50 group-hover:border-emerald-400 transition-colors pointer-events-none" />
+              <div className="absolute bottom-1.5 right-1.5 w-1.5 h-1.5 border-b border-r border-emerald-500/50 group-hover:border-emerald-400 transition-colors pointer-events-none" />
+
+              {/* Ambient radial glow */}
+              <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_#10b981_0%,_transparent_75%)] group-hover:opacity-25 transition-opacity pointer-events-none" />
+
+              {/* Central Glowing Upload Icon */}
+              <div className="relative z-10 w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-110 group-hover:bg-emerald-500/20 group-hover:border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.2)] transition-all shrink-0">
+                <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              </div>
+
+              <div className="relative z-10 space-y-0.5 mt-1">
+                <div className="text-[10px] sm:text-[11px] font-black text-white uppercase tracking-wider group-hover:text-emerald-300 transition-colors leading-tight">
+                  ইমেজ আপলোড
+                </div>
+                <div className="text-[7.5px] sm:text-[8px] font-mono text-emerald-400/90 leading-none">
+                  {savedImages.length > 0 ? `(${savedImages.length} Saved)` : 'Click or Drop'}
+                </div>
+              </div>
+            </label>
+          )}
+
           <AnimatePresence mode="wait">
             {!image ? (
               <motion.div
@@ -2073,9 +2206,22 @@ export default function App() {
 
                 {/* Accuracy Signal Filter selector bar above upload */}
                 <div className="bg-[#0b0d12] border border-gray-800 p-3 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xl backdrop-blur-md">
-                  <div className="flex items-center gap-2">
-                    <Sliders className="w-4 h-4 text-emerald-400" />
-                    <span className="text-xs font-black text-gray-200 uppercase tracking-wider">সিগন্যাল মোড সিলেক্ট করুন:</span>
+                  <div className="flex items-center justify-between w-full sm:w-auto gap-2">
+                    <div className="flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-emerald-400" />
+                      <span className="text-xs font-black text-gray-200 uppercase tracking-wider">সিগন্যাল মোড:</span>
+                    </div>
+                    {/* The Quick Upload Button (Selected Element) */}
+                    <label className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/15 border border-emerald-500/35 hover:border-emerald-400 hover:bg-emerald-500/25 rounded-xl text-emerald-400 text-[10px] font-black uppercase cursor-pointer transition-all active:scale-95 shadow-[0_0_12px_rgba(16,185,129,0.15)]">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>ইমেজ আপলোড</span>
+                      {savedImages.length > 0 && (
+                        <span className="ml-1 px-1.5 py-0.2 rounded-full bg-emerald-500 text-black text-[9px] font-mono font-bold leading-tight">
+                          {savedImages.length}
+                        </span>
+                      )}
+                      <input type="file" multiple className="hidden" onChange={handleFileUpload} accept="image/*" />
+                    </label>
                   </div>
                   <div className="flex items-center gap-2 w-full sm:w-auto">
                     <button
@@ -2107,8 +2253,172 @@ export default function App() {
                   </div>
                 </div>
 
-                <label className="group relative h-96 flex flex-col items-center justify-center border border-emerald-500/20 rounded-2xl bg-[#090b0e]/90 backdrop-blur-md hover:border-emerald-500/40 hover:bg-[#0c0f14]/95 transition-all duration-500 cursor-pointer overflow-hidden p-8 text-center shadow-[0_0_50px_rgba(16,185,129,0.05)] hover:shadow-[0_0_60px_rgba(16,185,129,0.12)]">
-                   <input type="file" className="hidden" onChange={handleFileUpload} accept="image/*" />
+                {/* SAVED UPLOADED IMAGES GALLERY (Selector 2) */}
+                <div className="bg-[#0b0d12]/95 border border-emerald-500/25 rounded-2xl p-3 sm:p-3.5 shadow-[0_0_25px_rgba(16,185,129,0.08)] backdrop-blur-md space-y-2.5 animate-fade-in">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+                      <span className="text-[11px] sm:text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                        সংরক্ষিত ইমেজ সমূহ (<span className="text-emerald-400 font-mono font-bold">{uploadCounter}</span>)
+                        <span className="text-[8.5px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono font-bold">
+                          Auto-Saved
+                        </span>
+                      </span>
+                      <span className="text-[9px] text-gray-400 hidden sm:inline">
+                        {isAdmin ? "— যেকোনো ইমেজে ক্লিক করে নির্বাচন করুন" : "— সংরক্ষিত ইমেজ তালিকা"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label
+                        onClick={(e) => {
+                          if (!isAdmin) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const goToAdmin = window.confirm(
+                              "🔒 শুধুমাত্র এডমিন প্যানেল থেকে নতুন ইমেজ যোগ করা যাবে!\nসাধারণ ব্যবহারকারী ইমেজ আপলোড করতে পারবেন না।\n\nআপনি কি এডমিন প্যানেলে লগইন করতে চান?"
+                            );
+                            if (goToAdmin) {
+                              setCurrentView('adminLogin');
+                            }
+                          }
+                        }}
+                        className={`text-[9.5px] font-black px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1.5 active:scale-95 ${
+                          isAdmin
+                            ? 'text-emerald-400 hover:text-black hover:bg-emerald-400 bg-emerald-500/15 border-emerald-500/35 cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.15)]'
+                            : 'text-amber-400/90 hover:text-amber-300 hover:bg-amber-500/20 bg-amber-500/10 border-amber-500/30 cursor-not-allowed shadow-[0_0_8px_rgba(245,158,11,0.1)]'
+                        }`}
+                        title={isAdmin ? "ইমেজ যোগ করুন (এডমিন অনুমোদিত)" : "শুধুমাত্র এডমিন প্যানেল ছাড়া সাধারন ইউজার ট্যাপ করতে পারবেন না"}
+                      >
+                        {isAdmin ? (
+                          <Upload className="w-3 h-3" />
+                        ) : (
+                          <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+                        )}
+                        <span>{isAdmin ? "ইমেজ যোগ করুন" : "ইমেজ যোগ করুন (এডমিন)"}</span>
+                        <input
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={handleFileUpload}
+                          accept="image/*"
+                          disabled={!isAdmin}
+                        />
+                      </label>
+                      {savedImages.length > 0 && isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm("সবগুলো সংরক্ষিত ইমেজ মুছে ফেলতে চান?")) {
+                              setSavedImages([]);
+                              localStorage.removeItem('savedChartImages');
+                              setUploadCounter(25796);
+                              try {
+                                localStorage.setItem('chart_upload_counter_v1', '25796');
+                              } catch (e) {}
+                            }
+                          }}
+                          className="text-[9px] font-bold text-gray-500 hover:text-rose-400 px-1.5 py-1 rounded hover:bg-rose-500/10 transition-all cursor-pointer"
+                          title="সব মুছুন"
+                        >
+                          সব মুছুন
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Scrollable Thumbnails List OR Empty Placeholder */}
+                  {savedImages.length > 0 ? (
+                    <div className="flex items-center gap-2.5 overflow-x-auto pb-1 pt-0.5 custom-scrollbar">
+                      {savedImages.map((savedImg, idx) => (
+                        <div
+                          key={savedImg.id || idx}
+                          className="relative group shrink-0"
+                        >
+                          <button
+                            type="button"
+                            disabled={!isAdmin}
+                            onClick={() => {
+                              if (!isAdmin) return;
+                              setImage(savedImg.dataUrl);
+                              setResult(null);
+                              setError(null);
+                            }}
+                            className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden border-2 transition-all p-0.5 block relative select-none ${
+                              !isAdmin
+                                ? 'border-gray-800 bg-black/60 cursor-default opacity-100 pointer-events-none'
+                                : image === savedImg.dataUrl
+                                ? 'border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] scale-105 ring-2 ring-emerald-500/40 cursor-pointer'
+                                : 'border-gray-800 hover:border-emerald-500/60 hover:scale-102 opacity-90 hover:opacity-100 bg-black/60 cursor-pointer'
+                            }`}
+                            title={isAdmin ? `ইমেজ #${idx + 1} নির্বাচন করুন` : `ইমেজ #${idx + 1}`}
+                          >
+                            <img 
+                              src={savedImg.dataUrl} 
+                              alt={`Chart ${idx + 1}`} 
+                              className="w-full h-full object-cover rounded-lg"
+                            />
+                            {isAdmin && image === savedImg.dataUrl && (
+                              <div className="absolute top-1 right-1 w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center text-black shadow-md">
+                                <Check className="w-2.5 h-2.5 stroke-[3]" />
+                              </div>
+                            )}
+                            <div className="absolute bottom-0 inset-x-0 bg-black/80 py-0.5 text-center">
+                              <span className="text-[7.5px] font-mono text-gray-300 font-bold block truncate">
+                                #{idx + 1}
+                              </span>
+                            </div>
+                          </button>
+                          
+                          {/* Delete individual image button - Admin Only */}
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSavedImages(prev => prev.filter(item => item.id !== savedImg.id));
+                                if (image === savedImg.dataUrl) {
+                                  setImage(null);
+                                  setResult(null);
+                                }
+                              }}
+                              className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity shadow-md cursor-pointer hover:bg-rose-600 active:scale-90 z-10"
+                              title="এই ইমেজটি মুছুন"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-3 px-3 bg-black/40 border border-dashed border-gray-800 rounded-xl text-center flex items-center justify-center gap-2">
+                      <ImageIcon className="w-4 h-4 text-emerald-400/70" />
+                      <span className="text-[10.5px] text-gray-400 font-medium">
+                        নিচে বা ড্রপ/পেস্ট করে যতগুলো ইমেজ দিবেন, সব স্বয়ংক্রিয়ভাবে এখানে সেভ থাকবে।
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Main Upload Dropzone (Selector 1) */}
+                <label 
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsMainDragging(true); }}
+                  onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsMainDragging(false); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsMainDragging(false);
+                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                      processMultipleFiles(e.dataTransfer.files);
+                    }
+                  }}
+                  className={`group relative h-96 flex flex-col items-center justify-center border-2 ${
+                    isMainDragging 
+                      ? 'border-emerald-400 bg-emerald-500/20 scale-[1.01] shadow-[0_0_60px_rgba(16,185,129,0.35)]' 
+                      : 'border-emerald-500/25 hover:border-emerald-400/60 bg-[#090b0e]/90 hover:bg-[#0c0f14]/95 shadow-[0_0_50px_rgba(16,185,129,0.05)] hover:shadow-[0_0_60px_rgba(16,185,129,0.15)]'
+                  } rounded-2xl backdrop-blur-md transition-all duration-300 cursor-pointer overflow-hidden p-8 text-center`}
+                >
+                   <input type="file" multiple className="hidden" onChange={handleFileUpload} accept="image/*" />
                    <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle_at_center,_#10b981_0%,_transparent_75%)] group-hover:opacity-25 transition-opacity duration-500" />
                    
                    {/* Moving Scanner Laser bar */}
@@ -2132,12 +2442,16 @@ export default function App() {
                    </div>
 
                   <div className="space-y-3 relative z-10">
-                    <h2 className="text-2xl font-black text-white tracking-wider text-center uppercase bg-gradient-to-r from-white via-emerald-100 to-white bg-clip-text">Analysis Target Required</h2>
-                    <p className="text-emerald-400/80 uppercase tracking-widest text-[11px] font-black text-center flex items-center justify-center gap-2">
+                    <h2 className="text-2xl font-black text-white tracking-wider text-center uppercase bg-gradient-to-r from-white via-emerald-100 to-white bg-clip-text">
+                      {isMainDragging ? 'এখানে ড্রপ করুন (Release to Save & Analyze)' : 'Analysis Target Required'}
+                    </h2>
+                    <p className="text-emerald-400/90 uppercase tracking-widest text-[11px] font-black text-center flex items-center justify-center gap-2">
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                      Chart screenshot আপলোড করুন অথবা কপি করা থাকলে পেস্ট করুন
+                      এক বা একাধিক Chart ইমেজ আপলোড বা ড্রপ করুন (সব অটো সেভ হবে)
                     </p>
-                    <p className="text-gray-500 text-[10px] uppercase font-bold tracking-widest mt-2">(Ctrl+V বা ক্লিক করুন)</p>
+                    <p className="text-gray-400 text-[10px] uppercase font-bold tracking-widest mt-2 flex items-center justify-center gap-1.5">
+                      <span>(Ctrl+V দিয়ে সরাসরি পেস্ট করুন বা ক্লিক করে ফাইল সিলেক্ট করুন)</span>
+                    </p>
                   </div>
                 </label>
                 
@@ -2205,6 +2519,42 @@ export default function App() {
                         <span>Normal (70%+)</span>
                       </button>
                     </div>
+
+                    {/* Saved Images Quick Switcher */}
+                    {savedImages.length > 0 && (
+                      <div className="flex items-center gap-1.5 overflow-x-auto max-w-[240px] sm:max-w-xs custom-scrollbar py-0.5">
+                        <span className="text-[8px] font-mono text-emerald-400 font-bold uppercase shrink-0">ইমেজ ({savedImages.length}):</span>
+                        {savedImages.map((savedImg, idx) => (
+                          <button
+                            key={savedImg.id || idx}
+                            type="button"
+                            onClick={() => {
+                              if (image !== savedImg.dataUrl) {
+                                setImage(savedImg.dataUrl);
+                                setResult(null);
+                                setError(null);
+                              }
+                            }}
+                            className={`w-6 h-6 rounded-md overflow-hidden border transition-all shrink-0 cursor-pointer ${
+                              image === savedImg.dataUrl
+                                ? 'border-emerald-400 ring-1 ring-emerald-400 scale-105'
+                                : 'border-gray-800 opacity-60 hover:opacity-100'
+                            }`}
+                            title={`ইমেজ #${idx + 1}`}
+                          >
+                            <img src={savedImg.dataUrl} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
+                          </button>
+                        ))}
+                        {/* Quick Add More Image Button */}
+                        <label 
+                          className="w-6 h-6 rounded-md border border-dashed border-emerald-500/50 hover:border-emerald-400 flex items-center justify-center text-emerald-400 cursor-pointer hover:bg-emerald-500/10 shrink-0 transition-colors" 
+                          title="আরো ইমেজ আপলোড করুন (Auto-Saved)"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <input type="file" multiple className="hidden" onChange={handleFileUpload} accept="image/*" />
+                        </label>
+                      </div>
+                    )}
                   </div>
 
                   {/* Result / Analysis State with integrated dynamic Tabs */}
