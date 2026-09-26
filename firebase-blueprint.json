@@ -83,9 +83,28 @@
         "counter": { "type": "integer", "minimum": 100 }
       },
       "required": ["counter"]
+    },
+    "analyzedImage": {
+      "title": "Analyzed Image",
+      "description": "Globally shared analyzed chart image thumbnails with uploader display name",
+      "type": "object",
+      "properties": {
+        "imageId": { "type": "string" },
+        "userId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "storageRef": { "type": "string" },
+        "thumbnail": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "analyzedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "displayName", "thumbnail"]
     }
   },
   "firestore": {
+    "/analyzed_images/{imageId}": {
+      "schema": "analyzedImage",
+      "description": "Global collection of analyzed chart image thumbnails visible to all users"
+    },
     "/users/{userId}": {
       "schema": "user",
       "description": "Collection of user profiles"

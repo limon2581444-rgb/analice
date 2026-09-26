@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, User, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, addDoc, collection, serverTimestamp, query, where, getDocs, orderBy, updateDoc, onSnapshot, writeBatch, limit } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, addDoc, collection, serverTimestamp, query, where, getDocs, orderBy, updateDoc, onSnapshot, writeBatch, limit, deleteDoc } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -326,4 +326,64 @@ export const clearTradeLogs = async (userId: string) => {
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 };
+
+export const saveAnalyzedImage = async (
+  userId: string,
+  displayName: string,
+  thumbnailBase64: string,
+  originalImageBase64?: string
+) => {
+  const path = 'analyzed_images';
+  try {
+    const docRef = await addDoc(collection(db, 'analyzed_images'), {
+      userId,
+      displayName: displayName || 'Trader',
+      thumbnail: thumbnailBase64,
+      storageRef: `firestore://analyzed_images`,
+      createdAt: serverTimestamp(),
+      analyzedAt: serverTimestamp(),
+    });
+
+    if (originalImageBase64) {
+      try {
+        await setDoc(doc(db, 'analyzed_images', docRef.id, 'private', 'original'), {
+          userId,
+          originalImage: originalImageBase64,
+          createdAt: serverTimestamp(),
+        });
+      } catch (privateErr) {
+        console.warn("Could not save original private copy:", privateErr);
+      }
+    }
+
+    return docRef;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+};
+
+export const getAnalyzedImagesSnap = (callback: (images: any[]) => void) => {
+  const path = 'analyzed_images';
+  try {
+    const q = query(collection(db, 'analyzed_images'), orderBy('analyzedAt', 'desc'), limit(100));
+    return onSnapshot(q, (snap) => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      callback(list);
+    }, (error) => {
+      console.error("Fetch Analyzed Images Error:", error);
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+  }
+};
+
+export const deleteAnalyzedImage = async (imageId: string) => {
+  const path = `analyzed_images/${imageId}`;
+  try {
+    return await deleteDoc(doc(db, 'analyzed_images', imageId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+};
+
 

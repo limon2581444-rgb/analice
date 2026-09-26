@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX, Zap, Target, Sliders, DollarSign, History, Image as ImageIcon, Plus, Lock } from 'lucide-react';
 import { analyzeChartImage, AnalysisResult } from './services/geminiService';
 import { toPng } from 'html-to-image';
-import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap, saveTradeLog, getTradeLogsSnap, clearTradeLogs } from './lib/firebase';
+import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap, saveTradeLog, getTradeLogsSnap, clearTradeLogs, saveAnalyzedImage, getAnalyzedImagesSnap, deleteAnalyzedImage } from './lib/firebase';
 import { doc, setDoc, serverTimestamp, getDoc, onSnapshot, collection, query, where, orderBy, updateDoc, getDocs, runTransaction } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { playAnalysisReadySound, playMessageAlertSound, isSoundEnabled, setSoundEnabled } from './utils/audioAlerts';
@@ -447,11 +447,10 @@ export default function App() {
   const [bkashNumber, setBkashNumber] = useState("");
   const [adminBkashNumber, setAdminBkashNumber] = useState("");
   const [copiedBkash, setCopiedBkash] = useState(false);
-  const [isLeftDragging, setIsLeftDragging] = useState(false);
   const [isMainDragging, setIsMainDragging] = useState(false);
 
-  // Saved uploaded chart images state
-  const [savedImages, setSavedImages] = useState<{ id: string; dataUrl: string; timestamp: number }[]>(() => {
+  // Saved globally shared analyzed chart images state
+  const [savedImages, setSavedImages] = useState<{ id: string; dataUrl: string; displayName?: string; userId?: string; timestamp: number }[]>(() => {
     try {
       const stored = localStorage.getItem('savedChartImages');
       if (stored) return JSON.parse(stored);
@@ -461,7 +460,7 @@ export default function App() {
     return [];
   });
 
-  // Custom upload counter starting at 25796, increments with every uploaded image
+  // Custom upload counter starting at 25796, increments with every analyzed image
   const [uploadCounter, setUploadCounter] = useState<number>(() => {
     try {
       const stored = localStorage.getItem('chart_upload_counter_v1');
@@ -474,6 +473,31 @@ export default function App() {
     }
     return 25796;
   });
+
+  // Real-time globally shared analyzed images listener from Firebase backend
+  useEffect(() => {
+    const unsubscribe = getAnalyzedImagesSnap((imagesList) => {
+      if (imagesList && imagesList.length > 0) {
+        const formatted = imagesList.map((item: any) => ({
+          id: item.id,
+          dataUrl: item.thumbnail || item.dataUrl || '',
+          displayName: item.displayName || 'Trader',
+          userId: item.userId,
+          timestamp: item.analyzedAt?.toMillis ? item.analyzedAt.toMillis() : (item.timestamp || Date.now())
+        }));
+        setSavedImages(formatted);
+        const dynamicCount = 25796 + formatted.length;
+        setUploadCounter(dynamicCount);
+        try {
+          localStorage.setItem('savedChartImages', JSON.stringify(formatted.slice(0, 15)));
+          localStorage.setItem('chart_upload_counter_v1', dynamicCount.toString());
+        } catch (e) {}
+      }
+    });
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -941,9 +965,6 @@ export default function App() {
       setImage(compressedList[0]);
       setResult(null);
       setError(null);
-
-      // Automatically save all uploaded images into gallery
-      addImagesToSaved(compressedList);
     }
   };
 
@@ -1321,6 +1342,18 @@ export default function App() {
       }
       
       setResult(data);
+      
+      // Automatically save analyzed image permanently to backend database & storage
+      if (image) {
+        try {
+          const thumbnailBase64 = await compressAndGetBase64(image, 160, 160);
+          const rawName = user?.displayName || userData?.customDisplayName || userData?.displayName;
+          const uploaderName = rawName ? rawName : (user?.email ? user.email.split('@')[0] : 'Trader');
+          await saveAnalyzedImage(user?.uid || 'user', uploaderName, thumbnailBase64, image);
+        } catch (saveErr) {
+          console.error("Error auto-saving analyzed image to backend:", saveErr);
+        }
+      }
       
       if (data) {
         setRecentAnalyses((prev) => {
@@ -2127,53 +2160,6 @@ export default function App() {
             <FloatingParticles />
           </div>
 
-          {/* Left-Side Quick Image Upload Box (Marked in User Screenshot) */}
-          {!image && (
-            <label
-              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsLeftDragging(true); }}
-              onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsLeftDragging(false); }}
-              onDrop={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setIsLeftDragging(false);
-                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                  processMultipleFiles(e.dataTransfer.files);
-                }
-              }}
-              className={`absolute top-3 sm:top-5 left-2 sm:left-4 md:left-6 z-20 hidden min-[540px]:flex flex-col items-center justify-center w-22 sm:w-26 h-22 sm:h-26 p-2 rounded-xl bg-[#090b0e]/90 border border-dashed ${
-                isLeftDragging 
-                  ? 'border-emerald-400 bg-emerald-500/20 scale-105 shadow-[0_0_20px_rgba(16,185,129,0.35)]' 
-                  : 'border-emerald-500/35 hover:border-emerald-400 hover:bg-[#0c0f15] shadow-[0_0_12px_rgba(16,185,129,0.1)] hover:shadow-[0_0_20px_rgba(16,185,129,0.25)]'
-              } transition-all duration-300 cursor-pointer backdrop-blur-md overflow-hidden select-none active:scale-95 text-center group`}
-              title="এখানে ক্লিক করে বা ড্রপ করে সরাসরি চার্ট ইমেজ আপলোড করুন (Quick Upload)"
-            >
-              <input type="file" multiple className="hidden" onChange={handleFileUpload} accept="image/*" />
-
-              {/* Glowing Corner HUD Accents */}
-              <div className="absolute top-1.5 left-1.5 w-1.5 h-1.5 border-t border-l border-emerald-500/50 group-hover:border-emerald-400 transition-colors pointer-events-none" />
-              <div className="absolute top-1.5 right-1.5 w-1.5 h-1.5 border-t border-r border-emerald-500/50 group-hover:border-emerald-400 transition-colors pointer-events-none" />
-              <div className="absolute bottom-1.5 left-1.5 w-1.5 h-1.5 border-b border-l border-emerald-500/50 group-hover:border-emerald-400 transition-colors pointer-events-none" />
-              <div className="absolute bottom-1.5 right-1.5 w-1.5 h-1.5 border-b border-r border-emerald-500/50 group-hover:border-emerald-400 transition-colors pointer-events-none" />
-
-              {/* Ambient radial glow */}
-              <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_#10b981_0%,_transparent_75%)] group-hover:opacity-25 transition-opacity pointer-events-none" />
-
-              {/* Central Glowing Upload Icon */}
-              <div className="relative z-10 w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-110 group-hover:bg-emerald-500/20 group-hover:border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.2)] transition-all shrink-0">
-                <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              </div>
-
-              <div className="relative z-10 space-y-0.5 mt-1">
-                <div className="text-[10px] sm:text-[11px] font-black text-white uppercase tracking-wider group-hover:text-emerald-300 transition-colors leading-tight">
-                  ইমেজ আপলোড
-                </div>
-                <div className="text-[7.5px] sm:text-[8px] font-mono text-emerald-400/90 leading-none">
-                  {savedImages.length > 0 ? `(${savedImages.length} Saved)` : 'Click or Drop'}
-                </div>
-              </div>
-            </label>
-          )}
-
           <AnimatePresence mode="wait">
             {!image ? (
               <motion.div
@@ -2294,8 +2280,13 @@ export default function App() {
                       {savedImages.length > 0 && isAdmin && (
                         <button
                           type="button"
-                          onClick={() => {
+                          onClick={async () => {
                             if (window.confirm("সবগুলো সংরক্ষিত ইমেজ মুছে ফেলতে চান?")) {
+                              for (const img of savedImages) {
+                                try {
+                                  await deleteAnalyzedImage(img.id);
+                                } catch (e) {}
+                              }
                               setSavedImages([]);
                               localStorage.removeItem('savedChartImages');
                               setUploadCounter(25796);
@@ -2319,11 +2310,9 @@ export default function App() {
                       {savedImages.map((savedImg, idx) => (
                         <div
                           key={savedImg.id || idx}
-                          className="relative group shrink-0"
+                          className="relative group shrink-0 flex flex-col items-center"
                         >
-                          <button
-                            type="button"
-                            disabled={!isAdmin}
+                          <div
                             onClick={() => {
                               if (!isAdmin) return;
                               setImage(savedImg.dataUrl);
@@ -2332,7 +2321,7 @@ export default function App() {
                             }}
                             className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden border-2 transition-all p-0.5 block relative select-none ${
                               !isAdmin
-                                ? 'border-gray-800 bg-black/60 cursor-default opacity-100 pointer-events-none'
+                                ? 'border-gray-800 bg-black/60 cursor-default opacity-100'
                                 : image === savedImg.dataUrl
                                 ? 'border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] scale-105 ring-2 ring-emerald-500/40 cursor-pointer'
                                 : 'border-gray-800 hover:border-emerald-500/60 hover:scale-102 opacity-90 hover:opacity-100 bg-black/60 cursor-pointer'
@@ -2342,26 +2331,40 @@ export default function App() {
                             <img 
                               src={savedImg.dataUrl} 
                               alt={`Chart ${idx + 1}`} 
-                              className="w-full h-full object-cover rounded-lg"
+                              className="w-full h-full object-cover rounded-lg pointer-events-none select-none"
+                              draggable={false}
+                              onContextMenu={(e) => e.preventDefault()}
                             />
                             {isAdmin && image === savedImg.dataUrl && (
                               <div className="absolute top-1 right-1 w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center text-black shadow-md">
                                 <Check className="w-2.5 h-2.5 stroke-[3]" />
                               </div>
                             )}
-                            <div className="absolute bottom-0 inset-x-0 bg-black/80 py-0.5 text-center">
+                            <div className="absolute bottom-0 inset-x-0 bg-black/80 py-0.5 text-center pointer-events-none">
                               <span className="text-[7.5px] font-mono text-gray-300 font-bold block truncate">
                                 #{idx + 1}
                               </span>
                             </div>
-                          </button>
+                          </div>
+
+                          {/* Uploader Name Display directly underneath the image */}
+                          <div className="mt-1 max-w-[56px] sm:max-w-[64px] text-center select-none pointer-events-none">
+                            <span className="text-[8.5px] font-semibold text-gray-400 block truncate leading-tight">
+                              {savedImg.displayName || 'Trader'}
+                            </span>
+                          </div>
                           
                           {/* Delete individual image button - Admin Only */}
                           {isAdmin && (
                             <button
                               type="button"
-                              onClick={(e) => {
+                              onClick={async (e) => {
                                 e.stopPropagation();
+                                try {
+                                  await deleteAnalyzedImage(savedImg.id);
+                                } catch (err) {
+                                  console.error("Error deleting analyzed image:", err);
+                                }
                                 setSavedImages(prev => prev.filter(item => item.id !== savedImg.id));
                                 if (image === savedImg.dataUrl) {
                                   setImage(null);
