@@ -125,6 +125,10 @@
       "schema": "counter",
       "description": "Sequential user auto-increment counter document"
     },
+    "/settings/upload_counter": {
+      "schema": "counter",
+      "description": "Global persistent upload counter starting at 25896 and incrementing with every uploaded picture"
+    },
     "/support_messages/{messageId}": {
       "schema": "supportMessage",
       "description": "Direct communication between users and administrators"

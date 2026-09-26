@@ -10,10 +10,10 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX, Zap, Target, Sliders, DollarSign, History, Image as ImageIcon, Plus, Lock } from 'lucide-react';
+import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX, Zap, Target, Sliders, DollarSign, History, Image as ImageIcon, Plus, Lock, Trash2 } from 'lucide-react';
 import { analyzeChartImage, AnalysisResult } from './services/geminiService';
 import { toPng } from 'html-to-image';
-import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap, saveTradeLog, getTradeLogsSnap, clearTradeLogs, saveAnalyzedImage, getAnalyzedImagesSnap, deleteAnalyzedImage } from './lib/firebase';
+import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap, saveTradeLog, getTradeLogsSnap, clearTradeLogs, saveAnalyzedImage, getAnalyzedImagesSnap, deleteAnalyzedImage, subscribeToUploadCounter, incrementUploadCounter, resetUploadCounter } from './lib/firebase';
 import { doc, setDoc, serverTimestamp, getDoc, onSnapshot, collection, query, where, orderBy, updateDoc, getDocs, runTransaction } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { playAnalysisReadySound, playMessageAlertSound, isSoundEnabled, setSoundEnabled } from './utils/audioAlerts';
@@ -401,7 +401,11 @@ export default function App() {
   const [adminChatUser, setAdminChatUser] = useState<string | null>(null);
   const [adminMessages, setAdminMessages] = useState<any[]>([]);
   const [userList, setUserList] = useState<any[]>([]); // For admin to see who messaged
-  const [adminTab, setAdminTab] = useState<'payments' | 'support' | 'users'>('payments');
+  const [adminTab, setAdminTab] = useState<'payments' | 'support' | 'users' | 'images'>('payments');
+  const [adminPreviewImage, setAdminPreviewImage] = useState<string | null>(null);
+  const [bulkUploadProgress, setBulkUploadProgress] = useState<{ total: number; current: number } | null>(null);
+  const [isBulkUploading, setIsBulkUploading] = useState<boolean>(false);
+  const galleryFileInputRef = useRef<HTMLInputElement>(null);
   const [allUsersList, setAllUsersList] = useState<any[]>([]);
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [userStatusFilter, setUserStatusFilter] = useState<'ALL' | 'VERIFIED' | 'UNVERIFIED' | 'EXPIRED' | 'PENDING'>('ALL');
@@ -460,19 +464,34 @@ export default function App() {
     return [];
   });
 
-  // Custom upload counter starting at 25796, increments with every analyzed image
+  // Custom upload counter starting at 25896, increments with every uploaded image
   const [uploadCounter, setUploadCounter] = useState<number>(() => {
     try {
       const stored = localStorage.getItem('chart_upload_counter_v1');
       if (stored) {
         const val = parseInt(stored, 10);
-        if (!isNaN(val) && val >= 25796) return val;
+        if (!isNaN(val) && val >= 25896) return val;
       }
     } catch (e) {
       console.error("Error reading uploadCounter:", e);
     }
-    return 25796;
+    return 25896;
   });
+
+  // Sync upload counter live from Firebase Firestore
+  useEffect(() => {
+    const unsubscribe = subscribeToUploadCounter((cloudCount) => {
+      if (typeof cloudCount === 'number' && cloudCount >= 25896) {
+        setUploadCounter(prev => Math.max(prev, cloudCount));
+        try {
+          localStorage.setItem('chart_upload_counter_v1', cloudCount.toString());
+        } catch (e) {}
+      }
+    });
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
 
   // Real-time globally shared analyzed images listener from Firebase backend
   useEffect(() => {
@@ -486,11 +505,8 @@ export default function App() {
           timestamp: item.analyzedAt?.toMillis ? item.analyzedAt.toMillis() : (item.timestamp || Date.now())
         }));
         setSavedImages(formatted);
-        const dynamicCount = 25796 + formatted.length;
-        setUploadCounter(dynamicCount);
         try {
           localStorage.setItem('savedChartImages', JSON.stringify(formatted.slice(0, 15)));
-          localStorage.setItem('chart_upload_counter_v1', dynamicCount.toString());
         } catch (e) {}
       }
     });
@@ -927,6 +943,7 @@ export default function App() {
       } catch (e) {}
       return next;
     });
+    incrementUploadCounter(dataUrls.length).catch(e => console.warn(e));
   };
 
   const addImageToSaved = (dataUrl: string) => {
@@ -934,38 +951,113 @@ export default function App() {
   };
 
   const processMultipleFiles = async (files: FileList | File[]) => {
-    if (result && !tradeLogged) {
+    if (!isAdmin && result && !tradeLogged) {
       alert("পরবর্তী ইমেজ আপলোড বা বিশ্লেষণ করার আগে বর্তমান ট্রেডের ফলাফল (PROFIT অথবা LOSS) নির্বাচন করুন!");
       return;
     }
-    const fileList = Array.from(files).filter(f => f.type.startsWith('image/'));
+    const fileList = (Array.from(files) as File[]).filter(f => f && f.type && f.type.startsWith('image/'));
     if (fileList.length === 0) {
       setError('দয়া করে শুধুমাত্র ইমেজ ফাইল নির্বাচন করুন (PNG, JPG, WEBP)');
       return;
     }
 
-    const compressedList: string[] = [];
-    for (const file of fileList) {
-      try {
-        const rawDataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        const compressed = await compressAndGetBase64(rawDataUrl);
-        compressedList.push(compressed);
-      } catch (err) {
-        console.error("Error processing file:", err);
-      }
-    }
+    await executeBulkUpload(fileList, false, true);
+  };
 
-    if (compressedList.length > 0) {
-      // Set the first image for immediate analysis
-      setImage(compressedList[0]);
-      setResult(null);
-      setError(null);
+  const executeBulkUpload = async (fileList: File[], showAlert = true, setImmediateImage = false) => {
+    if (fileList.length === 0) return;
+    setIsBulkUploading(true);
+    setGlobalLoading(true);
+    setBulkUploadProgress({ total: fileList.length, current: 0 });
+
+    try {
+      const rawName = user?.displayName || userData?.customDisplayName || (isAdmin ? 'Admin' : 'Trader');
+      const uploaderName = rawName || 'Trader';
+      const actualUid = user?.uid || (auth.currentUser ? auth.currentUser.uid : 'trader');
+
+      const uploadedEntries: { id: string; dataUrl: string; displayName: string; userId: string; timestamp: number }[] = [];
+
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        try {
+          const rawDataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          const thumbnailBase64 = await compressAndGetBase64(rawDataUrl, 320, 320);
+
+          let createdId = `${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`;
+          try {
+            const docRef = await saveAnalyzedImage(actualUid, uploaderName, thumbnailBase64, rawDataUrl);
+            if (docRef && docRef.id) {
+              createdId = docRef.id;
+            }
+          } catch (fireErr) {
+            console.warn("Could not save to firestore, keeping locally:", fireErr);
+          }
+
+          uploadedEntries.push({
+            id: createdId,
+            dataUrl: thumbnailBase64,
+            displayName: uploaderName,
+            userId: actualUid,
+            timestamp: Date.now() + i
+          });
+
+          setBulkUploadProgress({ total: fileList.length, current: i + 1 });
+        } catch (itemErr) {
+          console.error("Error processing bulk image #", i, itemErr);
+        }
+      }
+
+      if (uploadedEntries.length > 0) {
+        // Update local state and counter
+        setSavedImages(prev => {
+          const existingIds = new Set(uploadedEntries.map(u => u.id));
+          const filtered = prev.filter(p => !existingIds.has(p.id));
+          return [...uploadedEntries, ...filtered];
+        });
+
+        const addedCount = uploadedEntries.length;
+        setUploadCounter(prev => {
+          const next = prev + addedCount;
+          try {
+            localStorage.setItem('chart_upload_counter_v1', next.toString());
+          } catch (e) {}
+          return next;
+        });
+        incrementUploadCounter(addedCount).catch(e => console.warn(e));
+
+        if (setImmediateImage) {
+          // Set the first image for immediate analysis only if requested (e.g. from main dropzone)
+          setImage(uploadedEntries[0].dataUrl);
+          setResult(null);
+          setError(null);
+        }
+
+        if (showAlert && uploadedEntries.length > 1) {
+          alert(`✅ ${uploadedEntries.length}টি ইমেজ সফলভাবে আপলোড ও গ্যালারিতে সংরক্ষিত হয়েছে!`);
+        }
+      }
+    } catch (err: any) {
+      console.error("Bulk upload error:", err);
+      alert("ইমেজ আপলোড করতে সমস্যা হয়েছে: " + (err.message || ""));
+    } finally {
+      setIsBulkUploading(false);
+      setBulkUploadProgress(null);
+      setGlobalLoading(false);
     }
+  };
+
+  const handleBulkGalleryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      const fileList = (Array.from(files) as File[]).filter(f => f && f.type && f.type.startsWith('image/'));
+      await executeBulkUpload(fileList, true, false);
+    }
+    e.target.value = '';
   };
 
   const processImageFile = async (file: File) => {
@@ -1343,13 +1435,24 @@ export default function App() {
       
       setResult(data);
       
-      // Automatically save analyzed image permanently to backend database & storage
+      // Automatically save analyzed image permanently to backend database & storage if not already saved
       if (image) {
         try {
-          const thumbnailBase64 = await compressAndGetBase64(image, 160, 160);
-          const rawName = user?.displayName || userData?.customDisplayName || userData?.displayName;
-          const uploaderName = rawName ? rawName : (user?.email ? user.email.split('@')[0] : 'Trader');
-          await saveAnalyzedImage(user?.uid || 'user', uploaderName, thumbnailBase64, image);
+          const alreadySaved = savedImages.some(img => img.dataUrl === image);
+          if (!alreadySaved) {
+            const thumbnailBase64 = await compressAndGetBase64(image, 160, 160);
+            const rawName = user?.displayName || userData?.customDisplayName || userData?.displayName;
+            const uploaderName = rawName ? rawName : (user?.email ? user.email.split('@')[0] : 'Trader');
+            await saveAnalyzedImage(user?.uid || 'user', uploaderName, thumbnailBase64, image);
+            setUploadCounter(prev => {
+              const next = prev + 1;
+              try {
+                localStorage.setItem('chart_upload_counter_v1', next.toString());
+              } catch (e) {}
+              return next;
+            });
+            incrementUploadCounter(1).catch(e => console.warn(e));
+          }
         } catch (saveErr) {
           console.error("Error auto-saving analyzed image to backend:", saveErr);
         }
@@ -2232,49 +2335,37 @@ export default function App() {
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
                       <span className="text-[11px] sm:text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
-                        সংরক্ষিত ইমেজ সমূহ (<span className="text-emerald-400 font-mono font-bold">{uploadCounter}</span>)
+                        সংরক্ষিত ইমেজ সমূহ (<span className="text-emerald-400 font-mono font-black tracking-wider text-xs px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 shadow-[0_0_8px_rgba(16,185,129,0.3)]">{uploadCounter}</span>)
                         <span className="text-[8.5px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono font-bold">
                           Auto-Saved
                         </span>
                       </span>
                       <span className="text-[9px] text-gray-400 hidden sm:inline">
-                        {isAdmin ? "— যেকোনো ইমেজে ক্লিক করে নির্বাচন করুন" : "— সংরক্ষিত ইমেজ তালিকা"}
+                        — যেকোনো ইমেজে ক্লিক করে অ্যানালাইজ করুন
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <label
-                        onClick={(e) => {
-                          if (!isAdmin) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const goToAdmin = window.confirm(
-                              "🔒 শুধুমাত্র এডমিন প্যানেল থেকে নতুন ইমেজ যোগ করা যাবে!\nসাধারণ ব্যবহারকারী ইমেজ আপলোড করতে পারবেন না।\n\nআপনি কি এডমিন প্যানেলে লগইন করতে চান?"
-                            );
-                            if (goToAdmin) {
-                              setCurrentView('adminLogin');
-                            }
-                          }
-                        }}
-                        className={`text-[9.5px] font-black px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1.5 active:scale-95 ${
-                          isAdmin
-                            ? 'text-emerald-400 hover:text-black hover:bg-emerald-400 bg-emerald-500/15 border-emerald-500/35 cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.15)]'
-                            : 'text-amber-400/90 hover:text-amber-300 hover:bg-amber-500/20 bg-amber-500/10 border-amber-500/30 cursor-not-allowed shadow-[0_0_8px_rgba(245,158,11,0.1)]'
-                        }`}
-                        title={isAdmin ? "ইমেজ যোগ করুন (এডমিন অনুমোদিত)" : "শুধুমাত্র এডমিন প্যানেল ছাড়া সাধারন ইউজার ট্যাপ করতে পারবেন না"}
+                        className="text-[9.5px] font-black px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer text-emerald-400 hover:text-black hover:bg-emerald-400 bg-emerald-500/15 border-emerald-500/35 shadow-[0_0_10px_rgba(16,185,129,0.15)]"
+                        title="একসাথে যত খুশি তত ইমেজ আপলোড করুন (বাল্ক আপলোড)"
                       >
-                        {isAdmin ? (
-                          <Upload className="w-3 h-3" />
+                        {isBulkUploading ? (
+                          <RefreshCw className="w-3 h-3 animate-spin text-emerald-400" />
                         ) : (
-                          <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+                          <Upload className="w-3 h-3" />
                         )}
-                        <span>{isAdmin ? "ইমেজ যোগ করুন" : "ইমেজ যোগ করুন (এডমিন)"}</span>
+                        <span>
+                          {isBulkUploading 
+                            ? `আপলোড হচ্ছে (${bulkUploadProgress?.current || 0}/${bulkUploadProgress?.total || 0})` 
+                            : "ইমেজ যোগ করুন (বাল্ক)"}
+                        </span>
                         <input
+                          ref={galleryFileInputRef}
                           type="file"
                           multiple
                           className="hidden"
-                          onChange={handleFileUpload}
+                          onChange={handleBulkGalleryUpload}
                           accept="image/*"
-                          disabled={!isAdmin}
                         />
                       </label>
                       {savedImages.length > 0 && isAdmin && (
@@ -2289,10 +2380,11 @@ export default function App() {
                               }
                               setSavedImages([]);
                               localStorage.removeItem('savedChartImages');
-                              setUploadCounter(25796);
+                              setUploadCounter(25896);
                               try {
-                                localStorage.setItem('chart_upload_counter_v1', '25796');
+                                localStorage.setItem('chart_upload_counter_v1', '25896');
                               } catch (e) {}
+                              resetUploadCounter(25896).catch(e => console.warn(e));
                             }
                           }}
                           className="text-[9px] font-bold text-gray-500 hover:text-rose-400 px-1.5 py-1 rounded hover:bg-rose-500/10 transition-all cursor-pointer"
@@ -2314,19 +2406,16 @@ export default function App() {
                         >
                           <div
                             onClick={() => {
-                              if (!isAdmin) return;
                               setImage(savedImg.dataUrl);
                               setResult(null);
                               setError(null);
                             }}
-                            className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden border-2 transition-all p-0.5 block relative select-none ${
-                              !isAdmin
-                                ? 'border-gray-800 bg-black/60 cursor-default opacity-100'
-                                : image === savedImg.dataUrl
-                                ? 'border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] scale-105 ring-2 ring-emerald-500/40 cursor-pointer'
-                                : 'border-gray-800 hover:border-emerald-500/60 hover:scale-102 opacity-90 hover:opacity-100 bg-black/60 cursor-pointer'
+                            className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden border-2 transition-all p-0.5 block relative select-none cursor-pointer ${
+                              image === savedImg.dataUrl
+                                ? 'border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] scale-105 ring-2 ring-emerald-500/40'
+                                : 'border-gray-800 hover:border-emerald-500/60 hover:scale-102 bg-black/60'
                             }`}
-                            title={isAdmin ? `ইমেজ #${idx + 1} নির্বাচন করুন` : `ইমেজ #${idx + 1}`}
+                            title={`ইমেজ #${idx + 1} নির্বাচন ও অ্যানালাইজ করুন`}
                           >
                             <img 
                               src={savedImg.dataUrl} 
@@ -2513,7 +2602,7 @@ export default function App() {
                     {/* Saved Images Quick Switcher */}
                     {savedImages.length > 0 && (
                       <div className="flex items-center gap-1.5 overflow-x-auto max-w-[240px] sm:max-w-xs custom-scrollbar py-0.5">
-                        <span className="text-[8px] font-mono text-emerald-400 font-bold uppercase shrink-0">ইমেজ ({savedImages.length}):</span>
+                        <span className="text-[8px] font-mono text-emerald-400 font-bold uppercase shrink-0">সংরক্ষিত ({uploadCounter}):</span>
                         {savedImages.map((savedImg, idx) => (
                           <button
                             key={savedImg.id || idx}
@@ -3645,6 +3734,14 @@ export default function App() {
                   >
                     Users ({allUsersList.length})
                   </button>
+                  <button 
+                    onClick={() => setAdminTab('images')}
+                    className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-widest transition-all ${
+                      adminTab === 'images' ? 'bg-emerald-500 text-black shadow-lg font-bold' : 'text-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    Images ({savedImages.length})
+                  </button>
                 </div>
                 
                 <div className="relative">
@@ -4298,6 +4395,192 @@ export default function App() {
                     </table>
                   </div>
                 </div>
+              ) : adminTab === 'images' ? (
+                <div className="flex flex-col h-full overflow-hidden p-4 sm:p-6 space-y-6">
+                  {/* Top metrics summary */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="border border-emerald-500/25 bg-emerald-500/5 p-4 rounded-xl flex items-center justify-between">
+                      <div>
+                        <p className="text-emerald-400 text-[10px] font-black uppercase tracking-wider">মোট সংরক্ষিত ইমেজ</p>
+                        <h3 className="text-3xl font-black text-white mt-1 font-mono">{savedImages.length} টি</h3>
+                      </div>
+                      <div className="w-10 h-10 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                        <ImageIcon className="w-5 h-5" />
+                      </div>
+                    </div>
+
+                    <div className="border border-blue-500/25 bg-blue-500/5 p-4 rounded-xl flex items-center justify-between">
+                      <div>
+                        <p className="text-blue-400 text-[10px] font-black uppercase tracking-wider">কাউন্টার স্ট্যাটাস</p>
+                        <h3 className="text-3xl font-black text-white mt-1 font-mono">{uploadCounter}</h3>
+                      </div>
+                      <div className="w-10 h-10 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center">
+                        <Check className="w-5 h-5" />
+                      </div>
+                    </div>
+
+                    <div className="border border-amber-500/25 bg-amber-500/5 p-4 rounded-xl flex items-center justify-between">
+                      <div>
+                        <p className="text-amber-400 text-[10px] font-black uppercase tracking-wider">বাল্ক ইমেজ আপলোড</p>
+                        <h3 className="text-sm font-black text-amber-300 mt-1">আনলিমিটেড (একসাথে অনেকগুলো)</h3>
+                      </div>
+                      <div className="w-10 h-10 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
+                        <Upload className="w-5 h-5" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bulk Upload Banner / Dropzone */}
+                  <div className="bg-[#121620] border-2 border-dashed border-emerald-500/40 hover:border-emerald-400 rounded-2xl p-6 transition-all text-center flex flex-col items-center justify-center gap-3 group relative cursor-pointer shadow-[0_0_25px_rgba(16,185,129,0.06)]">
+                    <input
+                      type="file"
+                      multiple
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                      onChange={handleBulkGalleryUpload}
+                      accept="image/*"
+                    />
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+                      <Upload className="w-6 h-6 animate-bounce" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-white uppercase tracking-wider">
+                        {isBulkUploading ? "ইমেজ আপলোড হচ্ছে, অপেক্ষা করুন..." : "একসাথে যত খুশি তত ইমেজ সিলেক্ট বা ড্রপ করুন (Bulk Upload)"}
+                      </h4>
+                      <p className="text-xs text-gray-400 mt-1">
+                        এখানে ক্লিক করে আপনার কম্পিউটার বা মোবাইল থেকে এক ক্লিকে ১০, ২০, ৫০ বা আনলিমিটেড ইমেজ নির্বাচন করতে পারেন
+                      </p>
+                    </div>
+
+                    {bulkUploadProgress && (
+                      <div className="w-full max-w-md mt-2 space-y-1">
+                        <div className="flex justify-between text-[10px] font-mono font-bold text-emerald-400">
+                          <span>আপলোড হচ্ছে...</span>
+                          <span>{bulkUploadProgress.current} / {bulkUploadProgress.total}</span>
+                        </div>
+                        <div className="w-full h-2 bg-black/60 rounded-full overflow-hidden border border-emerald-500/30">
+                          <div 
+                            className="h-full bg-emerald-500 transition-all duration-200"
+                            style={{ width: `${(bulkUploadProgress.current / bulkUploadProgress.total) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-[10px] px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30 uppercase tracking-widest">
+                        JPG, PNG, WEBP সাপোর্টেড
+                      </span>
+                      <span className="text-[10px] px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30 uppercase tracking-widest">
+                        সব ইউজার গ্যালারিতে সাথে সাথে দৃশ্যমান
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions Header */}
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      সংরক্ষিত ইমেজ সমূহ ({savedImages.length}টি)
+                    </div>
+                    {savedImages.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (window.confirm("আপনি কি নিশ্চিত যে সবগুলো সংরক্ষিত ইমেজ মুছে ফেলতে চান?")) {
+                            setGlobalLoading(true);
+                            for (const img of savedImages) {
+                              try {
+                                await deleteAnalyzedImage(img.id);
+                              } catch (e) {}
+                            }
+                            setSavedImages([]);
+                            localStorage.removeItem('savedChartImages');
+                            setUploadCounter(25896);
+                            try {
+                              localStorage.setItem('chart_upload_counter_v1', '25896');
+                            } catch (e) {}
+                            resetUploadCounter(25896).catch(e => console.warn(e));
+                            setGlobalLoading(false);
+                            alert("সবগুলো ইমেজ সফলভাবে মুছে ফেলা হয়েছে।");
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500 hover:text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all"
+                      >
+                        সবগুলো ইমেজ মুছুন ⚠️
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Saved Images Grid */}
+                  <div className="flex-1 overflow-auto border border-gray-800 rounded-xl bg-[#0e0f12] p-4 custom-scrollbar">
+                    {savedImages.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-48 text-gray-500 text-xs italic">
+                        কোনো ইমেজ পাওয়া যায়নি। উপরের বক্সে ক্লিক করে একাধিক ইমেজ আপলোড করুন।
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+                        {savedImages.map((savedImg, idx) => (
+                          <div 
+                            key={savedImg.id || idx}
+                            className="bg-[#14161f] border border-gray-800 hover:border-emerald-500/50 rounded-xl p-2 flex flex-col items-center gap-2 group transition-all"
+                          >
+                            <div 
+                              onClick={() => setAdminPreviewImage(savedImg.dataUrl)}
+                              className="w-full aspect-square rounded-lg overflow-hidden border border-gray-700 bg-black/60 relative cursor-pointer"
+                              title="ক্লিক করে বড় করে দেখুন"
+                            >
+                              <img 
+                                src={savedImg.dataUrl} 
+                                alt={`Chart #${idx + 1}`} 
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                              />
+                              <div className="absolute top-1 left-1 bg-black/80 px-1.5 py-0.5 rounded text-[7.5px] font-mono text-emerald-400 font-bold">
+                                #{idx + 1}
+                              </div>
+                            </div>
+
+                            <div className="w-full text-center">
+                              <span className="text-[9px] font-bold text-gray-300 block truncate">
+                                {savedImg.displayName || 'Trader'}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1 w-full justify-between pt-1 border-t border-gray-800/80">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setImage(savedImg.dataUrl);
+                                  setResult(null);
+                                  setError(null);
+                                  setCurrentView('analysis');
+                                }}
+                                className="flex-1 px-1.5 py-1 bg-emerald-500/15 hover:bg-emerald-500 hover:text-black text-emerald-400 rounded text-[8px] font-black uppercase tracking-tighter transition-all"
+                                title="ট্রেড অ্যানালাইজারে লোড করুন"
+                              >
+                                এনালাইজ
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (window.confirm("এই ইমেজটি মুছে ফেলতে চান?")) {
+                                    try {
+                                      await deleteAnalyzedImage(savedImg.id);
+                                    } catch (e) {}
+                                    setSavedImages(prev => prev.filter(item => item.id !== savedImg.id));
+                                  }
+                                }}
+                                className="p-1 bg-rose-500/10 hover:bg-rose-500 hover:text-white text-rose-400 rounded transition-all"
+                                title="মুছুন"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               ) : (
                 <div className="flex h-full min-h-0">
                   {/* User List Sidebar */}
@@ -4554,6 +4837,62 @@ export default function App() {
                 <MessageCircle className="w-6 h-6 text-black animate-bounce [animation-duration:3s]" />
               </div>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Full Size Image Preview Modal */}
+      {adminPreviewImage && (
+        <div 
+          onClick={() => setAdminPreviewImage(null)}
+          className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#0e1017] border border-emerald-500/30 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
+          >
+            <div className="p-4 border-b border-gray-800 flex items-center justify-between bg-[#12141c]">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                <h3 className="text-xs font-bold text-white uppercase tracking-wider">এডমিন ইমেজ ফুল প্রিভিউ</h3>
+              </div>
+              <button 
+                onClick={() => setAdminPreviewImage(null)}
+                className="p-1 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-black/80">
+              <img 
+                src={adminPreviewImage} 
+                alt="Enlarged Chart" 
+                className="max-h-[70vh] w-auto object-contain rounded-xl border border-gray-800 shadow-2xl"
+              />
+            </div>
+            <div className="p-3 border-t border-gray-800 flex items-center justify-between bg-[#12141c]">
+              <span className="text-[10px] text-gray-400 font-mono">শুধুমাত্র এডমিন প্যানেল প্রিভিউ মোড</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setImage(adminPreviewImage);
+                    setResult(null);
+                    setError(null);
+                    setAdminPreviewImage(null);
+                    setCurrentView('analysis');
+                  }}
+                  className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-[10px] uppercase tracking-wider rounded-lg transition-all cursor-pointer"
+                >
+                  ট্রেড অ্যানালাইজারে লোড করুন ⚡
+                </button>
+                <button
+                  onClick={() => setAdminPreviewImage(null)}
+                  className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-gray-300 font-bold text-[10px] uppercase tracking-wider rounded-lg transition-all cursor-pointer"
+                >
+                  বন্ধ করুন
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

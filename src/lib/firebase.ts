@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, User, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, addDoc, collection, serverTimestamp, query, where, getDocs, orderBy, updateDoc, onSnapshot, writeBatch, limit, deleteDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, addDoc, collection, serverTimestamp, query, where, getDocs, orderBy, updateDoc, onSnapshot, writeBatch, limit, deleteDoc, runTransaction } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
@@ -385,5 +385,69 @@ export const deleteAnalyzedImage = async (imageId: string) => {
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 };
+
+export const subscribeToUploadCounter = (callback: (count: number) => void) => {
+  try {
+    const counterDoc = doc(db, 'settings', 'upload_counter');
+    return onSnapshot(counterDoc, (snap) => {
+      if (snap.exists()) {
+        const val = snap.data().counter;
+        if (typeof val === 'number') {
+          callback(val);
+        }
+      } else {
+        setDoc(counterDoc, { counter: 25896 }).catch(() => {});
+        callback(25896);
+      }
+    }, (error) => {
+      console.warn("Upload counter snapshot error:", error);
+    });
+  } catch (error) {
+    console.warn("Subscribe upload counter error:", error);
+  }
+};
+
+export const incrementUploadCounter = async (amount = 1) => {
+  const counterRef = doc(db, 'settings', 'upload_counter');
+  try {
+    return await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(counterRef);
+      if (!snap.exists()) {
+        const initial = 25896 + amount;
+        transaction.set(counterRef, { counter: initial });
+        return initial;
+      } else {
+        const cur = snap.data().counter;
+        const base = typeof cur === 'number' && cur >= 25896 ? cur : 25896;
+        const next = base + amount;
+        transaction.update(counterRef, { counter: next });
+        return next;
+      }
+    });
+  } catch (error) {
+    console.warn("Transaction increment upload counter failed, trying setDoc fallback:", error);
+    try {
+      const snap = await getDoc(counterRef);
+      const cur = snap.exists() ? snap.data().counter : 25896;
+      const base = typeof cur === 'number' && cur >= 25896 ? cur : 25896;
+      const next = base + amount;
+      await setDoc(counterRef, { counter: next }, { merge: true });
+      return next;
+    } catch (e) {
+      console.warn("Fallback increment failed:", e);
+      return null;
+    }
+  }
+};
+
+export const resetUploadCounter = async (base = 25896) => {
+  try {
+    const counterRef = doc(db, 'settings', 'upload_counter');
+    await setDoc(counterRef, { counter: base }, { merge: true });
+  } catch (e) {
+    console.warn("Reset upload counter error:", e);
+  }
+};
+
 
 
