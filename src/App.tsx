@@ -2212,15 +2212,47 @@ export default function App() {
                       <span className="text-xs font-black text-gray-200 uppercase tracking-wider">সিগন্যাল মোড:</span>
                     </div>
                     {/* The Quick Upload Button (Selected Element) */}
-                    <label className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/15 border border-emerald-500/35 hover:border-emerald-400 hover:bg-emerald-500/25 rounded-xl text-emerald-400 text-[10px] font-black uppercase cursor-pointer transition-all active:scale-95 shadow-[0_0_12px_rgba(16,185,129,0.15)]">
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>ইমেজ আপলোড</span>
+                    <label
+                      onClick={(e) => {
+                        if (!isAdmin) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const goToAdmin = window.confirm(
+                            "🔒 শুধুমাত্র এডমিন প্যানেল থেকে ইমেজ আপলোড করা যাবে!\nসাধারণ ব্যবহারকারী ইমেজ আপলোড করতে পারবেন না।\n\nআপনি কি এডমিন প্যানেলে লগইন করতে চান?"
+                          );
+                          if (goToAdmin) {
+                            setCurrentView('adminLogin');
+                          }
+                        }
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all active:scale-95 border ${
+                        isAdmin
+                          ? 'bg-emerald-500/15 border-emerald-500/35 hover:border-emerald-400 hover:bg-emerald-500/25 text-emerald-400 cursor-pointer shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                          : 'bg-amber-500/10 border-amber-500/30 text-amber-400/90 hover:bg-amber-500/20 cursor-not-allowed shadow-[0_0_8px_rgba(245,158,11,0.1)]'
+                      }`}
+                      title={isAdmin ? "ইমেজ আপলোড করুন (এডমিন প্যানেল)" : "শুধুমাত্র এডমিন প্যানেল থেকে আপলোড করা যাবে, সাধারণ ইউজাররা ট্যাপ করতে পারবেন না"}
+                    >
+                      {isAdmin ? (
+                        <Upload className="w-3.5 h-3.5" />
+                      ) : (
+                        <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      )}
+                      <span>{isAdmin ? "ইমেজ আপলোড" : "ইমেজ আপলোড (এডমিন)"}</span>
                       {savedImages.length > 0 && (
-                        <span className="ml-1 px-1.5 py-0.2 rounded-full bg-emerald-500 text-black text-[9px] font-mono font-bold leading-tight">
+                        <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold leading-tight ${
+                          isAdmin ? 'bg-emerald-500 text-black' : 'bg-amber-500/30 text-amber-300'
+                        }`}>
                           {savedImages.length}
                         </span>
                       )}
-                      <input type="file" multiple className="hidden" onChange={handleFileUpload} accept="image/*" />
+                      <input
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={handleFileUpload}
+                        accept="image/*"
+                        disabled={!isAdmin}
+                      />
                     </label>
                   </div>
                   <div className="flex items-center gap-2 w-full sm:w-auto">
