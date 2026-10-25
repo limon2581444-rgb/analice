@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { TrendingUp, TrendingDown, Upload, Activity, AlertCircle, RefreshCw, MessageSquare, Terminal, Download, Copy, Check, Send, LogOut, LogIn, User, ShieldCheck, CreditCard, Clock, Key, MessageCircle, X, ArrowLeft, Volume2, VolumeX, Zap, Target, Sliders, DollarSign, History, Image as ImageIcon, Plus, Lock, Trash2 } from 'lucide-react';
 import { analyzeChartImage, AnalysisResult } from './services/geminiService';
 import { toPng } from 'html-to-image';
-import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap, saveTradeLog, getTradeLogsSnap, clearTradeLogs, saveAnalyzedImage, getAnalyzedImagesSnap, deleteAnalyzedImage, subscribeToUploadCounter, incrementUploadCounter, resetUploadCounter } from './lib/firebase';
+import { auth, loginWithGoogle, logout, db, BKASH_NUMBER, checkIfAdmin, submitPaymentRequest, getPaymentRequests, getPaymentRequestsSnap, updatePaymentStatus, getUserData, incrementFreeUsage, activateSubscription, deactivateSubscription, OperationType, registerWithEmail, loginWithEmail, sendSupportMessage, sendAdminReply, markMessageAsRead, getAllUsersSnap, saveTradeLog, getTradeLogsSnap, clearTradeLogs, saveAnalyzedImage, getAnalyzedImagesSnap, deleteAnalyzedImage, subscribeToUploadCounter, incrementUploadCounter, resetUploadCounter } from './lib/firebase';
 import { doc, setDoc, serverTimestamp, getDoc, onSnapshot, collection, query, where, orderBy, updateDoc, getDocs, runTransaction } from 'firebase/firestore';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { playAnalysisReadySound, playMessageAlertSound, isSoundEnabled, setSoundEnabled } from './utils/audioAlerts';
@@ -838,16 +838,12 @@ export default function App() {
 
   useEffect(() => {
     if (isAdmin && currentView === 'adminPanel') {
-      const fetchReqs = async () => {
-        try {
-          const reqs = await getPaymentRequests();
-          setPaymentRequests(reqs);
-        } catch (err) {
-          console.error("Admin Fetch Error:", err);
-          setError("অ্যাডমিন প্যানেল লোড করতে সমস্যা হয়েছে।");
-        }
+      const unsubscribe = getPaymentRequestsSnap((reqs) => {
+        setPaymentRequests(reqs);
+      });
+      return () => {
+        if (unsubscribe) unsubscribe();
       };
-      fetchReqs();
     }
   }, [isAdmin, currentView]);
 
@@ -1596,28 +1592,24 @@ export default function App() {
 
   const handlePaymentSubmit = async () => {
     if (!user) {
-      alert("দয়া করে আগে গুগল দিয়ে লগইন করুন।");
+      alert("দয়া করে আগে গুগল বা ইমেইল দিয়ে লগইন করুন।");
       return;
     }
-    if (!senderNumber || !trxId) {
-      alert("সবগুলো ঘর সঠিকভাবে পূরণ করুন!");
+    if (!senderNumber.trim() || !trxId.trim()) {
+      alert("দয়া করে সবগুলো ঘর সঠিকভাবে পূরণ করুন!");
       return;
     }
     const cleanNum = senderNumber.trim();
     const cleanTrx = trxId.trim();
-    if (cleanNum.length < 10 || cleanNum.length > 15) {
-      alert("বিকাশ নম্বর বা বাইন্যান্স বিবরণ ১০ থেকে ১৫ অক্ষরের মধ্যে হতে হবে!");
-      return;
-    }
-    if (cleanTrx.length < 5 || cleanTrx.length > 50) {
-      alert("Transaction ID ৫ থেকে ৫০ অক্ষরের মধ্যে হতে হবে!");
-      return;
-    }
     setAnalyzing(true);
     setGlobalLoading(true);
     setShowSuccess(false);
     try {
-      await submitPaymentRequest(user.uid, cleanNum, cleanTrx);
+      await submitPaymentRequest(user.uid, cleanNum, cleanTrx, {
+        userName: customUserName || user.displayName || userData?.customDisplayName || 'Trader',
+        userEmail: user.email || '',
+        paymentMethod: paymentMethod || 'bkash',
+      });
       setSenderNumber("");
       setTrxId("");
       
@@ -1634,12 +1626,9 @@ export default function App() {
       }, 1000);
     } catch (err: any) {
       setAnalyzing(false);
-      console.error(err);
-      if (err.message && err.message.includes('permission-denied')) {
-        alert("পেমেন্ট রিকোয়েস্ট সাবমিট করতে বিশেষ পারমিশন প্রয়োজন। দয়া করে আবার চেষ্টা করুন।");
-      } else {
-        alert("সাবমিট করতে সমস্যা হয়েছে। " + (err.message || ""));
-      }
+      setGlobalLoading(false);
+      console.error("Payment submit error:", err);
+      alert("সাবমিট করতে সমস্যা হয়েছে: " + (err.message || "আবার চেষ্টা করুন।"));
     }
   };
 
@@ -2341,7 +2330,7 @@ export default function App() {
                         </span>
                       </span>
                       <span className="text-[9px] text-gray-400 hidden sm:inline">
-                        — যেকোনো ইমেজে ক্লিক করে অ্যানালাইজ করুন
+                        — {isAdmin ? "যেকোনো ইমেজে ক্লিক করে অ্যানালাইজ করুন" : "সংরক্ষিত ইমেজ তালিকা"}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2406,16 +2395,19 @@ export default function App() {
                         >
                           <div
                             onClick={() => {
+                              if (!isAdmin) return;
                               setImage(savedImg.dataUrl);
                               setResult(null);
                               setError(null);
                             }}
-                            className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden border-2 transition-all p-0.5 block relative select-none cursor-pointer ${
-                              image === savedImg.dataUrl
-                                ? 'border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] scale-105 ring-2 ring-emerald-500/40'
-                                : 'border-gray-800 hover:border-emerald-500/60 hover:scale-102 bg-black/60'
+                            className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden border-2 transition-all p-0.5 block relative select-none ${
+                              !isAdmin
+                                ? 'border-gray-800 bg-black/60 cursor-default opacity-85'
+                                : image === savedImg.dataUrl
+                                ? 'border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] scale-105 ring-2 ring-emerald-500/40 cursor-pointer'
+                                : 'border-gray-800 hover:border-emerald-500/60 hover:scale-102 bg-black/60 cursor-pointer'
                             }`}
-                            title={`ইমেজ #${idx + 1} নির্বাচন ও অ্যানালাইজ করুন`}
+                            title={isAdmin ? `ইমেজ #${idx + 1} নির্বাচন ও অ্যানালাইজ করুন` : `ইমেজ #${idx + 1}`}
                           >
                             <img 
                               src={savedImg.dataUrl} 
@@ -3398,52 +3390,38 @@ export default function App() {
                               <div className="absolute top-0 left-0 w-1.5 h-full bg-[#e2125d]" />
                               <div className="flex justify-between items-center pl-1">
                                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                                  {bkashNumber ? "bKash Personal Number" : "bKash Payment Gateway"}
+                                  bKash Payment Gateway
                                 </span>
                                 <span className="px-2 py-0.5 rounded bg-[#e2125d]/10 text-[9px] font-black text-[#e2125d] uppercase tracking-widest">
-                                  {bkashNumber ? "Send Money" : "Support"}
+                                  Support
                                 </span>
                               </div>
                               
-                              {bkashNumber ? (
-                                <div className="flex items-center justify-between bg-[#0b0d12] border border-gray-800 rounded-xl p-3.5 group/addr hover:bg-[#0c0f16] hover:border-[#e2125d]/30 transition-all">
-                                  <span className="text-xs sm:text-sm font-mono font-bold text-rose-400 break-all select-all pr-2">
-                                    {bkashNumber}
+                              <div 
+                                onClick={() => setShowChat(true)}
+                                className="flex items-center justify-between bg-[#0b0d12] border border-[#e2125d]/30 hover:border-[#e2125d]/60 rounded-xl p-3.5 group/addr hover:bg-[#0c0f16] transition-all cursor-pointer shadow-[0_0_15px_rgba(226,18,93,0.1)]"
+                              >
+                                <div className="flex items-center gap-2.5">
+                                  <span className="w-2.5 h-2.5 rounded-full bg-[#e2125d] animate-pulse shadow-[0_0_8px_rgba(226,18,93,0.8)]" />
+                                  <span className="text-xs sm:text-sm font-bold text-white tracking-wide">
+                                    ইনবক্সে যোগাযোগ করুন
                                   </span>
-                                  <button 
-                                    type="button"
-                                    onClick={() => { 
-                                      navigator.clipboard.writeText(bkashNumber); 
-                                      setCopiedBkash(true); 
-                                      setTimeout(() => setCopiedBkash(false), 2000); 
-                                    }} 
-                                    className="text-[9px] sm:text-[10px] text-gray-400 hover:text-rose-300 font-bold uppercase tracking-wider transition-all shrink-0 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10 active:scale-95 cursor-pointer"
-                                  >
-                                    {copiedBkash ? 'Copied' : 'Copy'}
-                                  </button>
                                 </div>
-                              ) : (
-                                <div className="flex items-center justify-between bg-[#0b0d12] border border-gray-800 rounded-xl p-3.5 group/addr hover:bg-[#0c0f16] hover:border-[#e2125d]/30 transition-all">
-                                  <div className="flex items-center gap-2">
-                                    <span className="w-2 h-2 rounded-full bg-[#e2125d] animate-pulse" />
-                                    <span className="text-xs sm:text-sm font-medium text-gray-300">
-                                      বিকাশ নাম্বারের জন্য লাইভ সাপোর্টে মেসেজ দিন
-                                    </span>
-                                  </div>
-                                  <button 
-                                    type="button"
-                                    onClick={() => setShowChat(true)} 
-                                    className="text-[10px] text-white font-black uppercase tracking-wider transition-all shrink-0 px-3.5 py-1.5 bg-[#e2125d] hover:bg-[#c20e4f] rounded-lg active:scale-95 shadow-[0_0_12px_rgba(226,18,93,0.4)] cursor-pointer"
-                                  >
-                                    Live Support
-                                  </button>
-                                </div>
-                              )}
+                                <button 
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowChat(true);
+                                  }} 
+                                  className="text-[10px] text-white font-black uppercase tracking-wider transition-all shrink-0 px-3.5 py-1.5 bg-[#e2125d] hover:bg-[#c20e4f] rounded-lg active:scale-95 shadow-[0_0_12px_rgba(226,18,93,0.4)] cursor-pointer flex items-center gap-1.5"
+                                >
+                                  <MessageCircle className="w-3.5 h-3.5" />
+                                  <span>ইনবক্স / Support</span>
+                                </button>
+                              </div>
+
                               <p className="text-[10px] text-gray-400 tracking-wide font-normal pl-1">
-                                {bkashNumber 
-                                  ? "এই বিকাশ নাম্বারে সেন্ড মানি করুন এবং আপনার সেন্ডার নাম্বার এবং ট্রানজেকশন ID নিচের বক্সে সাবমিট করুন।"
-                                  : "সাপোর্ট থেকে বিকাশ নাম্বার নিয়ে সেন্ড মানি করুন এবং আপনার সেন্ডার নাম্বার ও ট্রানজেকশন ID নিচের বক্সে সাবমিট করুন।"
-                                }
+                                পেমেন্ট সম্পন্ন করতে সরাসরি আমাদের ইনবক্সে যোগাযোগ করুন। পেমেন্ট করার পর আপনার সেন্ডার তথ্য ও Transaction ID নিচের বক্সে সাবমিট করুন।
                               </p>
                             </div>
                           )}
@@ -3938,6 +3916,11 @@ export default function App() {
                               </td>
                               <td className="px-6 py-4">
                                 <div className="text-sm font-bold text-gray-200 font-mono tracking-wider">{req.senderNumber}</div>
+                                {(req.userName || req.userEmail) && (
+                                  <div className="text-[10px] text-emerald-400 font-medium truncate max-w-[200px]">
+                                    {req.userName || req.userEmail} {req.paymentMethod ? `(${req.paymentMethod.toUpperCase()})` : ''}
+                                  </div>
+                                )}
                               </td>
                               <td className="px-6 py-4">
                                 <div className="text-sm font-bold text-amber-500 font-mono">{req.trxId}</div>

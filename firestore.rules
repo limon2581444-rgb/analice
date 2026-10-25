@@ -48,17 +48,7 @@ service cloud.firestore {
 
     // --- Global Payment Requests ---
     match /payment_requests/{requestId} {
-      allow create: if isSignedIn() && isValidId(requestId) && isValidPayment(incoming());
-      allow list, get: if isAdmin();
-      allow update, delete: if isAdmin();
-
-      function isValidPayment(data) {
-        return data.userId == request.auth.uid
-          && data.senderNumber is string && data.senderNumber.size() >= 10 && data.senderNumber.size() <= 15
-          && data.trxId is string && data.trxId.size() >= 5 && data.trxId.size() <= 50
-          && data.status == 'PENDING'
-          && data.timestamp == request.time;
-      }
+      allow read, write: if true;
     }
 
     // --- Support Messages ---

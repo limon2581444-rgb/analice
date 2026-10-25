@@ -165,23 +165,52 @@ export const deactivateSubscription = async (uid: string) => {
   }
 };
 
-export const submitPaymentRequest = async (userId: string, senderNumber: string, trxId: string) => {
-  const userPath = `users/${userId}`;
+export const submitPaymentRequest = async (userId: string, senderNumber: string, trxId: string, extraData?: { userName?: string; userEmail?: string; paymentMethod?: string }) => {
   const requestPath = 'payment_requests';
   try {
-    // Update user status to PENDING
-    const userRef = doc(db, 'users', userId);
-    await setDoc(userRef, { subscriptionStatus: 'PENDING' }, { merge: true });
+    // Attempt to update user status to PENDING
+    try {
+      const userRef = doc(db, 'users', userId);
+      await setDoc(userRef, { subscriptionStatus: 'PENDING' }, { merge: true });
+    } catch (uErr) {
+      console.warn("Could not set user status to PENDING, proceeding with payment request:", uErr);
+    }
 
     return await addDoc(collection(db, 'payment_requests'), {
       userId,
-      senderNumber,
-      trxId,
+      senderNumber: senderNumber || '',
+      trxId: trxId || '',
+      userName: extraData?.userName || 'Trader',
+      userEmail: extraData?.userEmail || '',
+      paymentMethod: extraData?.paymentMethod || 'bkash',
       status: 'PENDING',
       timestamp: serverTimestamp(),
+      createdAt: serverTimestamp(),
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, requestPath);
+  }
+};
+
+export const getPaymentRequestsSnap = (callback: (requests: any[]) => void) => {
+  const path = 'payment_requests';
+  try {
+    const q = query(collection(db, 'payment_requests'), orderBy('timestamp', 'desc'));
+    return onSnapshot(q, (snap) => {
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      callback(list);
+    }, async (error) => {
+      console.warn("Real-time payment requests snapshot error, attempting fallback:", error);
+      try {
+        const fallbackSnap = await getDocs(collection(db, 'payment_requests'));
+        const fallbackList = fallbackSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        callback(fallbackList);
+      } catch (fbErr) {
+        handleFirestoreError(fbErr, OperationType.LIST, path);
+      }
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
   }
 };
 
@@ -192,7 +221,12 @@ export const getPaymentRequests = async () => {
     const snap = await getDocs(q);
     return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    try {
+      const snap = await getDocs(collection(db, 'payment_requests'));
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (e) {
+      handleFirestoreError(error, OperationType.LIST, path);
+    }
   }
 };
 
