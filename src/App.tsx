@@ -24,6 +24,15 @@ import { MoneyManagementModal } from './components/MoneyManagementModal';
 // @ts-ignore
 import tradeLensLogo from './assets/images/tradelens_logo_1783032357643.jpg';
 
+export const safeToDate = (timestamp: any): Date | null => {
+  if (!timestamp) return null;
+  if (typeof timestamp?.toDate === 'function') return timestamp.toDate();
+  if (timestamp instanceof Date) return timestamp;
+  if (typeof timestamp?.seconds === 'number') return new Date(timestamp.seconds * 1000);
+  const parsed = new Date(timestamp);
+  return isNaN(parsed.getTime()) ? null : parsed;
+};
+
 function RainEffect() {
   const [drops, setDrops] = useState<{
     id: number;
@@ -527,6 +536,22 @@ export default function App() {
 
   // Load global payment settings on mount
   useEffect(() => {
+    // Attempt local cache restore first for quota resilience
+    try {
+      const cached = localStorage.getItem('cached_payment_settings');
+      if (cached) {
+        const data = JSON.parse(cached);
+        if (data.trc20Address) {
+          setTrc20Address(data.trc20Address);
+          setAdminTrc20Address(data.trc20Address);
+        }
+        if (data.bkashNumber) {
+          setBkashNumber(data.bkashNumber);
+          setAdminBkashNumber(data.bkashNumber);
+        }
+      }
+    } catch (e) {}
+
     const docRef = doc(db, 'settings', 'payment');
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -536,9 +561,15 @@ export default function App() {
         const activeBkash = (data.bkashNumber && data.bkashNumber !== '1236032255' && data.bkashNumber !== '01568760651') ? data.bkashNumber : "";
         setBkashNumber(activeBkash);
         setAdminBkashNumber(activeBkash);
+        try {
+          localStorage.setItem('cached_payment_settings', JSON.stringify({
+            trc20Address: data.trc20Address || "",
+            bkashNumber: activeBkash
+          }));
+        } catch (e) {}
       }
-    }, (err) => {
-      console.error("Error loaded settings:", err);
+    }, (err: any) => {
+      console.warn("Payment settings offline notice:", err?.message || err);
     });
     return () => unsubscribe();
   }, []);
@@ -563,9 +594,9 @@ export default function App() {
           const configRef = doc(db, 'settings', 'payment');
           getDoc(configRef).then((configSnap) => {
             if (!configSnap.exists()) {
-              setDoc(configRef, { bkashNumber: '', trc20Address: 'TPAXoRZNjyn9XqwtmkV9xaTAzyeqEW2Hxy' }).catch(err => console.error("Error auto-setting payment config:", err));
+              setDoc(configRef, { bkashNumber: '', trc20Address: 'TPAXoRZNjyn9XqwtmkV9xaTAzyeqEW2Hxy' }).catch(err => console.warn("Notice auto-setting payment config:", err));
             }
-          }).catch(err => console.error("Error loading config during admin check:", err));
+          }).catch(err => console.warn("Notice loading payment config during admin check:", err?.message || err));
         }
 
         // One-time Sync user to Firestore
@@ -637,7 +668,7 @@ export default function App() {
             await setDoc(userRef, updatePayload, { merge: true });
           }
         } catch (error) {
-          console.error("Firestore sync error:", error);
+          console.warn("Firestore user sync notice (offline/quota):", error);
           // Don't throw here to avoid blocking app boot
         }
       } else {
@@ -654,6 +685,23 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
+    // Cache fallback if offline or quota reached
+    try {
+      const cached = localStorage.getItem(`cached_user_data_${user.uid}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setUserData(parsed);
+        if (parsed.customDisplayName) {
+          setCustomUserName(parsed.customDisplayName);
+        } else if (parsed.displayName) {
+          setCustomUserName(parsed.displayName);
+        }
+        if (parsed.recentAnalyses && Array.isArray(parsed.recentAnalyses) && parsed.recentAnalyses.length > 0) {
+          setRecentAnalyses(parsed.recentAnalyses);
+        }
+      }
+    } catch (e) {}
+
     const userPath = `users/${user.uid}`;
     const userRef = doc(db, userPath);
     
@@ -661,6 +709,9 @@ export default function App() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setUserData(data);
+        try {
+          localStorage.setItem(`cached_user_data_${user.uid}`, JSON.stringify(data));
+        } catch (e) {}
         
         if (data) {
           if (data.customDisplayName) {
@@ -676,28 +727,31 @@ export default function App() {
         
         // Auto-expiration flow: If status is ACTIVE but expiresAt is in the past (Day 27reached), update Firestore
         if (data.subscriptionStatus === 'ACTIVE' && data.subscriptionExpiresAt) {
-          const expiresAt = data.subscriptionExpiresAt.toDate();
+          const expiresAt = typeof data.subscriptionExpiresAt?.toDate === 'function'
+            ? data.subscriptionExpiresAt.toDate()
+            : new Date(data.subscriptionExpiresAt);
           if (expiresAt <= new Date()) {
             try {
               await deactivateSubscription(user.uid);
               console.log("Subscription automatically expired on Day 27. Switched status to Unverified.");
             } catch (err) {
-              console.error("Error auto-deactivating expired subscription:", err);
+              console.warn("Notice: Error auto-deactivating expired subscription:", err);
             }
           }
         }
       }
-    }, (error) => {
-      // Log error but don't necessarily crash the app
-      console.error("User Snapshot Error:", error);
+    }, (error: any) => {
+      // Log notice but keep cached state so user experience is not disrupted
+      console.warn("User Snapshot notice (using cached data):", error?.message || error);
     });
 
     return () => unsubscribe();
   }, [user]);
 
+  const userSubExpiresAt = safeToDate(userData?.subscriptionExpiresAt);
   const isUserSubscribed = userData?.subscriptionStatus === 'ACTIVE' && 
-                          userData?.subscriptionExpiresAt && 
-                          userData.subscriptionExpiresAt.toDate() > new Date();
+                          userSubExpiresAt !== null && 
+                          userSubExpiresAt > new Date();
 
   // Force unverified logged-in non-admin to payment view and keep them there
   useEffect(() => {
@@ -768,7 +822,7 @@ export default function App() {
       }
 
       setMessages(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (err) => console.error("Chat Error:", err));
+    }, (err: any) => console.warn("Chat notice (offline/quota):", err?.message || err));
     return () => unsubscribe();
   }, [user]);
 
@@ -826,7 +880,7 @@ export default function App() {
         return b.timestamp?.toMillis() - a.timestamp?.toMillis();
       });
       setUserList(sortedUsers);
-    }, (err) => console.error("Admin Chat Error:", err));
+    }, (err: any) => console.warn("Admin Chat notice (offline/quota):", err?.message || err));
     return () => unsubscribe();
   }, [isAdmin]);
 
@@ -1384,9 +1438,10 @@ export default function App() {
       }
 
       if (userData) {
+        const expDate = safeToDate(userData.subscriptionExpiresAt);
         const isSubscribed = userData.subscriptionStatus === 'ACTIVE' && 
-                            userData.subscriptionExpiresAt && 
-                            userData.subscriptionExpiresAt.toDate() > new Date();
+                            expDate !== null && 
+                            expDate > new Date();
         
         if (!isSubscribed) {
           if (userData?.subscriptionStatus === 'PENDING') {
@@ -1500,9 +1555,10 @@ export default function App() {
       
       // Increment free usage for non-admins if not subscribed
       if (!isAdmin && user && userData) {
+        const expDate = safeToDate(userData.subscriptionExpiresAt);
         const isSubscribed = userData.subscriptionStatus === 'ACTIVE' && 
-                            userData.subscriptionExpiresAt && 
-                            userData.subscriptionExpiresAt.toDate() > new Date();
+                            expDate !== null && 
+                            expDate > new Date();
         if (!isSubscribed && userData.freeUsageCount < 3) {
           await incrementFreeUsage(user.uid);
         }
@@ -3225,7 +3281,7 @@ export default function App() {
                             <span className="text-[9px] text-gray-600 uppercase font-black block mb-1">Expires In</span>
                             <span className="text-sm font-mono text-white">
                               {userData?.subscriptionStatus === 'ACTIVE' && userData.subscriptionExpiresAt 
-                                ? Math.ceil((userData.subscriptionExpiresAt.toDate().getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) + ' Days'
+                                ? Math.ceil(((safeToDate(userData.subscriptionExpiresAt)?.getTime() || Date.now()) - new Date().getTime()) / (1000 * 60 * 60 * 24)) + ' Days'
                                 : '26 Days'}
                             </span>
                           </div>
@@ -3311,7 +3367,7 @@ export default function App() {
                           <p className="text-xs text-gray-500 mt-2">Your pro features are fully operational. Renewal option will appear 3 days before expiry.</p>
                           <div className="mt-6 pt-6 border-t border-white/5 space-y-2">
                              <span className="text-[10px] uppercase text-gray-600 font-bold tracking-widest">Renewal Date</span>
-                             <p className="text-sm font-mono text-gray-300">{userData.subscriptionExpiresAt?.toDate().toLocaleDateString()}</p>
+                             <p className="text-sm font-mono text-gray-300">{safeToDate(userData.subscriptionExpiresAt)?.toLocaleDateString() || 'N/A'}</p>
                           </div>
                         </div>
                       ) : (
@@ -4033,7 +4089,10 @@ export default function App() {
                       <div>
                         <p className="text-emerald-400 text-[10px] font-black uppercase tracking-wider">মোট ভেরিফাইড ইউজার</p>
                         <h3 className="text-3xl font-black text-emerald-500 mt-1 font-mono">
-                          {allUsersList.filter(u => u.subscriptionStatus === 'ACTIVE' && !(u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date())).length} জন
+                          {allUsersList.filter(u => {
+                            const exp = safeToDate(u.subscriptionExpiresAt);
+                            return u.subscriptionStatus === 'ACTIVE' && (!exp || exp > new Date());
+                          }).length} জন
                         </h3>
                       </div>
                       <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${
@@ -4115,7 +4174,10 @@ export default function App() {
                               : 'bg-white/5 text-gray-400 border-white/5 hover:bg-white/10 hover:text-white'
                           }`}
                         >
-                          ভেরিফাইড ({allUsersList.filter(u => u.subscriptionStatus === 'ACTIVE' && !(u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date())).length})
+                          ভেরিফাইড ({allUsersList.filter(u => {
+                            const exp = safeToDate(u.subscriptionExpiresAt);
+                            return u.subscriptionStatus === 'ACTIVE' && (!exp || exp > new Date());
+                          }).length})
                         </button>
                         <button
                           onClick={() => setUserStatusFilter('PENDING')}
@@ -4135,7 +4197,10 @@ export default function App() {
                               : 'bg-white/5 text-gray-400 border-white/5 hover:bg-white/10 hover:text-white'
                           }`}
                         >
-                          মেয়াদোত্তীর্ণ ({allUsersList.filter(u => u.subscriptionStatus === 'ACTIVE' && u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date()).length})
+                          মেয়াদোত্তীর্ণ ({allUsersList.filter(u => {
+                            const exp = safeToDate(u.subscriptionExpiresAt);
+                            return u.subscriptionStatus === 'ACTIVE' && exp !== null && exp <= new Date();
+                          }).length})
                         </button>
                         <button
                           onClick={() => setUserStatusFilter('UNVERIFIED')}
@@ -4161,7 +4226,8 @@ export default function App() {
                           const matchesSearch = nameMatch || emailMatch || uidMatch || serialMatch;
                           if (!matchesSearch) return false;
 
-                          const isExpired = u.subscriptionStatus === 'ACTIVE' && u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date();
+                          const exp = safeToDate(u.subscriptionExpiresAt);
+                          const isExpired = u.subscriptionStatus === 'ACTIVE' && exp !== null && exp <= new Date();
                           const isVerified = u.subscriptionStatus === 'ACTIVE' && !isExpired;
 
                           if (userStatusFilter === 'VERIFIED') return isVerified;
@@ -4197,7 +4263,8 @@ export default function App() {
                             const matchesSearch = nameMatch || emailMatch || uidMatch || serialMatch;
                             if (!matchesSearch) return false;
 
-                            const isExpired = u.subscriptionStatus === 'ACTIVE' && u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date();
+                            const exp = safeToDate(u.subscriptionExpiresAt);
+                            const isExpired = u.subscriptionStatus === 'ACTIVE' && exp !== null && exp <= new Date();
                             const isVerified = u.subscriptionStatus === 'ACTIVE' && !isExpired;
 
                             if (userStatusFilter === 'VERIFIED') {
@@ -4226,7 +4293,8 @@ export default function App() {
                           }
 
                           return filtered.map((u) => {
-                            const isExpired = u.subscriptionStatus === 'ACTIVE' && u.subscriptionExpiresAt && u.subscriptionExpiresAt.toDate() <= new Date();
+                            const exp = safeToDate(u.subscriptionExpiresAt);
+                            const isExpired = u.subscriptionStatus === 'ACTIVE' && exp !== null && exp <= new Date();
                             const isVerified = u.subscriptionStatus === 'ACTIVE' && !isExpired;
                             
                             // Calculate verified date and relative days
@@ -4235,11 +4303,13 @@ export default function App() {
                             let vDate: Date | null = null;
                             
                             if (isVerified) {
-                              vDate = u.verifiedAt ? u.verifiedAt.toDate() : null;
+                              vDate = safeToDate(u.verifiedAt);
                               if (!vDate && u.subscriptionExpiresAt) {
-                                const exp = u.subscriptionExpiresAt.toDate();
-                                vDate = new Date(exp.getTime());
-                                vDate.setDate(vDate.getDate() - 30);
+                                const expDate = safeToDate(u.subscriptionExpiresAt);
+                                if (expDate) {
+                                  vDate = new Date(expDate.getTime());
+                                  vDate.setDate(vDate.getDate() - 30);
+                                }
                               }
                               
                               if (vDate) {
@@ -4257,12 +4327,14 @@ export default function App() {
                             }
 
                             // Calculate joined date and last login
-                            const joinedDateStr = u.createdAt && u.createdAt.toDate 
-                              ? u.createdAt.toDate().toLocaleDateString('bn-BD', { day: 'numeric', month: 'short', year: 'numeric' }) 
+                            const createdDate = safeToDate(u.createdAt);
+                            const joinedDateStr = createdDate 
+                              ? createdDate.toLocaleDateString('bn-BD', { day: 'numeric', month: 'short', year: 'numeric' }) 
                               : 'N/A';
                               
-                            const lastLoginStr = u.lastLogin && u.lastLogin.toDate
-                              ? u.lastLogin.toDate().toLocaleDateString('bn-BD', { day: 'numeric', month: 'short', year: 'numeric' }) + " " + u.lastLogin.toDate().toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' })
+                            const loginDate = safeToDate(u.lastLogin);
+                            const lastLoginStr = loginDate
+                              ? loginDate.toLocaleDateString('bn-BD', { day: 'numeric', month: 'short', year: 'numeric' }) + " " + loginDate.toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' })
                               : 'N/A';
 
                             return (

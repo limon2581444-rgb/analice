@@ -1,10 +1,20 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, User, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, addDoc, collection, serverTimestamp, query, where, getDocs, orderBy, updateDoc, onSnapshot, writeBatch, limit, deleteDoc, runTransaction } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getFirestore, doc, getDoc, setDoc, addDoc, collection, serverTimestamp, query, where, getDocs, orderBy, updateDoc, onSnapshot, writeBatch, limit, deleteDoc, runTransaction } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+let firestoreDb;
+try {
+  firestoreDb = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  }, firebaseConfig.firestoreDatabaseId);
+} catch (e) {
+  firestoreDb = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+}
+
+export const db = firestoreDb;
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
@@ -30,7 +40,11 @@ export const loginWithGoogle = async () => {
       console.log("Google sign-in popup was cancelled or closed.");
       return null;
     }
-    console.error("Login Error:", error);
+    if (code.includes("network-request-failed") || code.includes("auth/network-request-failed")) {
+      console.warn("Google login network notice:", error);
+      throw new Error("ইন্টারনেট কানেকশন বা নেটওয়ার্ক সমস্যার কারণে লগইন ব্যর্থ হয়েছে। অনুগ্রহ করে ইন্টারনেট চেক করে আবার চেষ্টা করুন।");
+    }
+    console.warn("Login Notice:", error?.message || error);
     throw error;
   } finally {
     isAuthInProgress = false;
@@ -69,8 +83,14 @@ interface FirestoreErrorInfo {
 }
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errMsg = error instanceof Error ? error.message : String(error);
+  const isQuotaOrNetwork = errMsg.toLowerCase().includes('quota') ||
+                           errMsg.toLowerCase().includes('resource_exhausted') ||
+                           errMsg.toLowerCase().includes('network') ||
+                           errMsg.toLowerCase().includes('unavailable');
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -85,6 +105,12 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path
   };
+
+  if (isQuotaOrNetwork) {
+    console.warn(`[Firestore Offline/Cached Mode] ${operationType} on ${path}: ${errMsg}`);
+    return; // Safely return without throwing to prevent app crash
+  }
+
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
@@ -102,9 +128,21 @@ export const getUserData = async (uid: string) => {
   try {
     const ref = doc(db, 'users', uid);
     const snap = await getDoc(ref);
-    return snap.exists() ? snap.data() : null;
+    if (snap.exists()) {
+      const data = snap.data();
+      try {
+        localStorage.setItem(`cached_user_data_${uid}`, JSON.stringify(data));
+      } catch (e) {}
+      return data;
+    }
+    return null;
   } catch (error) {
+    try {
+      const cached = localStorage.getItem(`cached_user_data_${uid}`);
+      if (cached) return JSON.parse(cached);
+    } catch (e) {}
     handleFirestoreError(error, OperationType.GET, path);
+    return null;
   }
 };
 
@@ -126,18 +164,18 @@ export const activateSubscription = async (uid: string) => {
   const path = `users/${uid}`;
   try {
     const ref = doc(db, 'users', uid);
-    const snap = await getDoc(ref);
-    const data = snap.exists() ? snap.data() : null;
-    
     let expiresAt = new Date();
-    const currentExpiry = data?.subscriptionExpiresAt?.toDate();
-    
-    if (currentExpiry && currentExpiry > new Date()) {
-      // Add 26 days to current expiry if still active
-      expiresAt = new Date(currentExpiry);
-      expiresAt.setDate(expiresAt.getDate() + 26);
-    } else {
-      // Set to 26 days from now
+    try {
+      const snap = await getDoc(ref);
+      const data = snap.exists() ? snap.data() : null;
+      const currentExpiry = data?.subscriptionExpiresAt?.toDate ? data.subscriptionExpiresAt.toDate() : null;
+      if (currentExpiry && currentExpiry > new Date()) {
+        expiresAt = new Date(currentExpiry);
+        expiresAt.setDate(expiresAt.getDate() + 26);
+      } else {
+        expiresAt.setDate(expiresAt.getDate() + 26);
+      }
+    } catch (e) {
       expiresAt.setDate(expiresAt.getDate() + 26);
     }
 
@@ -195,38 +233,45 @@ export const submitPaymentRequest = async (userId: string, senderNumber: string,
 export const getPaymentRequestsSnap = (callback: (requests: any[]) => void) => {
   const path = 'payment_requests';
   try {
-    const q = query(collection(db, 'payment_requests'), orderBy('timestamp', 'desc'));
+    const q = query(collection(db, 'payment_requests'), orderBy('timestamp', 'desc'), limit(50));
     return onSnapshot(q, (snap) => {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      callback(list);
-    }, async (error) => {
-      console.warn("Real-time payment requests snapshot error, attempting fallback:", error);
       try {
-        const fallbackSnap = await getDocs(collection(db, 'payment_requests'));
-        const fallbackList = fallbackSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        callback(fallbackList);
-      } catch (fbErr) {
-        handleFirestoreError(fbErr, OperationType.LIST, path);
-      }
+        localStorage.setItem('cached_payment_requests', JSON.stringify(list));
+      } catch (e) {}
+      callback(list);
+    }, (error) => {
+      console.warn("Payment requests snapshot notice (using local cache):", error?.message || error);
+      try {
+        const cached = localStorage.getItem('cached_payment_requests');
+        if (cached) callback(JSON.parse(cached));
+      } catch (e) {}
     });
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn("Payment requests subscribe notice:", error);
+    try {
+      const cached = localStorage.getItem('cached_payment_requests');
+      if (cached) callback(JSON.parse(cached));
+    } catch (e) {}
   }
 };
 
 export const getPaymentRequests = async () => {
   const path = 'payment_requests';
   try {
-    const q = query(collection(db, 'payment_requests'), orderBy('timestamp', 'desc'));
+    const q = query(collection(db, 'payment_requests'), orderBy('timestamp', 'desc'), limit(50));
     const snap = await getDocs(q);
-    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    try {
+      localStorage.setItem('cached_payment_requests', JSON.stringify(list));
+    } catch (e) {}
+    return list;
   } catch (error) {
     try {
-      const snap = await getDocs(collection(db, 'payment_requests'));
-      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } catch (e) {
-      handleFirestoreError(error, OperationType.LIST, path);
-    }
+      const cached = localStorage.getItem('cached_payment_requests');
+      if (cached) return JSON.parse(cached);
+    } catch (e) {}
+    return [];
   }
 };
 
@@ -284,15 +329,26 @@ export const markMessageAsRead = async (messageId: string) => {
 export const getAllUsersSnap = (callback: (users: any[]) => void) => {
   const path = 'users';
   try {
-    const q = query(collection(db, 'users'), orderBy('lastLogin', 'desc'));
+    const q = query(collection(db, 'users'), orderBy('lastLogin', 'desc'), limit(50));
     return onSnapshot(q, (snap) => {
       const users = snap.docs.map(doc => ({ id: doc.id, uid: doc.id, ...doc.data() }));
+      try {
+        localStorage.setItem('cached_all_users', JSON.stringify(users));
+      } catch (e) {}
       callback(users);
     }, (error) => {
-      console.error("Fetch Users Error:", error);
+      console.warn("Fetch Users Notice (using local cache):", error?.message || error);
+      try {
+        const cached = localStorage.getItem('cached_all_users');
+        if (cached) callback(JSON.parse(cached));
+      } catch (e) {}
     });
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn("Users subscribe notice:", error);
+    try {
+      const cached = localStorage.getItem('cached_all_users');
+      if (cached) callback(JSON.parse(cached));
+    } catch (e) {}
   }
 };
 
@@ -308,20 +364,10 @@ export const saveTradeLog = async (userId: string, prediction: string, confidenc
       timestamp: serverTimestamp(),
     });
 
-    // Automatically enforce 10 trade limit: keep top 10 most recent, delete older trades
-    const q = query(collection(db, 'users', userId, 'trades'), orderBy('timestamp', 'desc'));
-    const snapshot = await getDocs(q);
-    if (snapshot.docs.length > 10) {
-      const batch = writeBatch(db);
-      for (let i = 10; i < snapshot.docs.length; i++) {
-        batch.delete(snapshot.docs[i].ref);
-      }
-      await batch.commit();
-    }
-
     return newDocRef;
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    console.warn("Save trade log cloud notice (local log active):", error);
+    return null;
   }
 };
 
@@ -331,23 +377,33 @@ export const getTradeLogsSnap = (userId: string, callback: (trades: any[]) => vo
     const q = query(collection(db, 'users', userId, 'trades'), orderBy('timestamp', 'desc'), limit(10));
     return onSnapshot(q, (snap) => {
       const trades = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      try {
+        localStorage.setItem(`tradeHistory_${userId}`, JSON.stringify(trades.slice(0, 10)));
+      } catch (e) {}
       callback(trades.slice(0, 10));
     }, (error) => {
-      handleFirestoreError(error, OperationType.GET, path);
+      console.warn("Trade logs snapshot notice (using local storage):", error?.message || error);
+      try {
+        const cached = localStorage.getItem(`tradeHistory_${userId}`) || localStorage.getItem('tradeHistory');
+        if (cached) callback(JSON.parse(cached));
+      } catch (e) {}
     });
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn("Trade logs subscribe notice:", error);
+    try {
+      const cached = localStorage.getItem(`tradeHistory_${userId}`) || localStorage.getItem('tradeHistory');
+      if (cached) callback(JSON.parse(cached));
+    } catch (e) {}
   }
 };
 
 export const clearTradeLogs = async (userId: string) => {
   const path = `users/${userId}/trades`;
   try {
-    const q = query(collection(db, 'users', userId, 'trades'));
+    const q = query(collection(db, 'users', userId, 'trades'), limit(100));
     const snapshot = await getDocs(q);
     const docs = snapshot.docs;
     
-    // Batch limit in Firestore is 500 operations. We delete in chunks of 400 safely.
     for (let i = 0; i < docs.length; i += 400) {
       const batch = writeBatch(db);
       const chunk = docs.slice(i, i + 400);
@@ -357,7 +413,7 @@ export const clearTradeLogs = async (userId: string) => {
       await batch.commit();
     }
   } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
+    console.warn("Clear trade logs notice:", error);
   }
 };
 
@@ -392,22 +448,35 @@ export const saveAnalyzedImage = async (
 
     return docRef;
   } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
+    console.warn("Save analyzed image cloud notice:", error);
+    return null;
   }
 };
 
 export const getAnalyzedImagesSnap = (callback: (images: any[]) => void) => {
   const path = 'analyzed_images';
   try {
-    const q = query(collection(db, 'analyzed_images'), orderBy('analyzedAt', 'desc'), limit(100));
+    // Limit to 25 to preserve quota
+    const q = query(collection(db, 'analyzed_images'), orderBy('analyzedAt', 'desc'), limit(25));
     return onSnapshot(q, (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      try {
+        localStorage.setItem('savedChartImages', JSON.stringify(list));
+      } catch (e) {}
       callback(list);
     }, (error) => {
-      console.error("Fetch Analyzed Images Error:", error);
+      console.warn("Analyzed images snapshot notice (using local storage):", error?.message || error);
+      try {
+        const cached = localStorage.getItem('savedChartImages');
+        if (cached) callback(JSON.parse(cached));
+      } catch (e) {}
     });
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn("Analyzed images subscribe notice:", error);
+    try {
+      const cached = localStorage.getItem('savedChartImages');
+      if (cached) callback(JSON.parse(cached));
+    } catch (e) {}
   }
 };
 
@@ -427,6 +496,9 @@ export const subscribeToUploadCounter = (callback: (count: number) => void) => {
       if (snap.exists()) {
         const val = snap.data().counter;
         if (typeof val === 'number') {
+          try {
+            localStorage.setItem('chart_upload_counter_v1', val.toString());
+          } catch (e) {}
           callback(val);
         }
       } else {
@@ -434,10 +506,17 @@ export const subscribeToUploadCounter = (callback: (count: number) => void) => {
         callback(25896);
       }
     }, (error) => {
-      console.warn("Upload counter snapshot error:", error);
+      console.warn("Upload counter snapshot notice (using local storage):", error?.message || error);
+      try {
+        const stored = localStorage.getItem('chart_upload_counter_v1');
+        if (stored) {
+          const val = parseInt(stored, 10);
+          if (!isNaN(val)) callback(val);
+        }
+      } catch (e) {}
     });
   } catch (error) {
-    console.warn("Subscribe upload counter error:", error);
+    console.warn("Subscribe upload counter notice:", error);
   }
 };
 
