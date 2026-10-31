@@ -1000,24 +1000,79 @@ export default function App() {
     addImagesToSaved([dataUrl]);
   };
 
+  const extractImageFilesFromClipboard = (clipboardData: DataTransfer | null): File[] => {
+    if (!clipboardData) return [];
+    const imageFiles: File[] = [];
+
+    // 1. Check clipboardData.files (standard for screenshot files copied to clipboard)
+    if (clipboardData.files && clipboardData.files.length > 0) {
+      for (let i = 0; i < clipboardData.files.length; i++) {
+        const file = clipboardData.files[i];
+        if (file && (file.type?.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name))) {
+          imageFiles.push(file);
+        }
+      }
+    }
+
+    // 2. Check clipboardData.items (for direct browser copy/paste of canvas or image data)
+    if (clipboardData.items && clipboardData.items.length > 0) {
+      for (let i = 0; i < clipboardData.items.length; i++) {
+        const item = clipboardData.items[i];
+        if (item && (item.kind === 'file' || item.type?.startsWith('image/'))) {
+          const file = item.getAsFile();
+          if (file && !imageFiles.some(f => f.name === file.name && f.size === file.size)) {
+            imageFiles.push(file);
+          }
+        }
+      }
+    }
+
+    return imageFiles;
+  };
+
   const processMultipleFiles = async (files: FileList | File[]) => {
     if (!isAdmin && result && !tradeLogged) {
       alert("পরবর্তী ইমেজ আপলোড বা বিশ্লেষণ করার আগে বর্তমান ট্রেডের ফলাফল (PROFIT অথবা LOSS) নির্বাচন করুন!");
       return;
     }
-    const fileList = (Array.from(files) as File[]).filter(f => f && f.type && f.type.startsWith('image/'));
+    const rawFiles = Array.from(files) as File[];
+    const fileList = rawFiles.filter(f => f && (f.type?.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(f.name)));
     if (fileList.length === 0) {
       setError('দয়া করে শুধুমাত্র ইমেজ ফাইল নির্বাচন করুন (PNG, JPG, WEBP)');
       return;
     }
 
-    await executeBulkUpload(fileList, false, true);
+    // 🚀 ULTRA-FAST 0ms PREVIEW:
+    // Instantly read the first image via FileReader and set state immediately
+    // so user sees their chart screenshot in milliseconds with zero delay!
+    try {
+      const firstFile = fileList[0];
+      const instantDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(firstFile);
+      });
+
+      if (instantDataUrl) {
+        setImage(instantDataUrl);
+        setResult(null);
+        setError(null);
+        setTradeLogged(false);
+      }
+    } catch (readErr) {
+      console.warn("Instant preview load warning:", readErr);
+    }
+
+    // Background processing (thumbnail generation & gallery saving) runs non-blockingly
+    executeBulkUpload(fileList, false, false).catch(err => {
+      console.warn("Background upload warning:", err);
+    });
   };
 
   const executeBulkUpload = async (fileList: File[], showAlert = true, setImmediateImage = false) => {
     if (fileList.length === 0) return;
     setIsBulkUploading(true);
-    setGlobalLoading(true);
     setBulkUploadProgress({ total: fileList.length, current: 0 });
 
     try {
@@ -1039,8 +1094,12 @@ export default function App() {
           const thumbnailBase64 = await compressAndGetBase64(rawDataUrl, 320, 320);
 
           let createdId = `${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`;
+          
+          // Non-blocking Firestore save with 2.5s timeout protection against quota exceeded delays
           try {
-            const docRef = await saveAnalyzedImage(actualUid, uploaderName, thumbnailBase64, rawDataUrl);
+            const savePromise = saveAnalyzedImage(actualUid, uploaderName, thumbnailBase64, rawDataUrl);
+            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500));
+            const docRef = (await Promise.race([savePromise, timeoutPromise])) as any;
             if (docRef && docRef.id) {
               createdId = docRef.id;
             }
@@ -1081,10 +1140,10 @@ export default function App() {
         incrementUploadCounter(addedCount).catch(e => console.warn(e));
 
         if (setImmediateImage) {
-          // Set the first image for immediate analysis only if requested (e.g. from main dropzone)
-          setImage(uploadedEntries[0].dataUrl);
+          setImage(prev => prev || uploadedEntries[0].dataUrl);
           setResult(null);
           setError(null);
+          setTradeLogged(false);
         }
 
         if (showAlert && uploadedEntries.length > 1) {
@@ -1093,18 +1152,19 @@ export default function App() {
       }
     } catch (err: any) {
       console.error("Bulk upload error:", err);
-      alert("ইমেজ আপলোড করতে সমস্যা হয়েছে: " + (err.message || ""));
+      if (showAlert) {
+        alert("ইমেজ আপলোড করতে সমস্যা হয়েছে: " + (err.message || ""));
+      }
     } finally {
       setIsBulkUploading(false);
       setBulkUploadProgress(null);
-      setGlobalLoading(false);
     }
   };
 
   const handleBulkGalleryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      const fileList = (Array.from(files) as File[]).filter(f => f && f.type && f.type.startsWith('image/'));
+      const fileList = (Array.from(files) as File[]).filter(f => f && (f.type?.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(f.name)));
       await executeBulkUpload(fileList, true, false);
     }
     e.target.value = '';
@@ -1121,34 +1181,87 @@ export default function App() {
     e.target.value = '';
   };
 
-  const handlePaste = useCallback((e: ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-
-    const imageFiles: File[] = [];
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        const file = items[i].getAsFile();
-        if (file) imageFiles.push(file);
-      } else if (items[i].type === 'text/plain') {
-        items[i].getAsString((text) => {
-          // Only auto-paste text if context is currently empty or user is pasting into a non-input area
-          const target = e.target as HTMLElement;
-          if (target.tagName !== 'TEXTAREA' && target.tagName !== 'INPUT') {
-            setUserContext((prev) => prev ? prev + '\n' + text : text);
+  // Direct clipboard paste handler via button (works on Chrome, Edge, Safari, Mobile browsers)
+  const handleClipboardPasteClick = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.read === 'function') {
+        const items = await navigator.clipboard.read();
+        const files: File[] = [];
+        for (const item of items) {
+          for (const type of item.types) {
+            if (type.startsWith('image/')) {
+              const blob = await item.getType(type);
+              files.push(new File([blob], `screenshot-${Date.now()}.png`, { type }));
+              break;
+            }
           }
-        });
+        }
+        if (files.length > 0) {
+          await processMultipleFiles(files);
+          return;
+        }
+      }
+
+      // Text fallback if user copied a data:image or web url
+      if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+        const text = (await navigator.clipboard.readText()).trim();
+        if (text && (text.startsWith('data:image/') || /^https?:\/\/.*\.(png|jpg|jpeg|webp)/i.test(text))) {
+          setImage(text);
+          setResult(null);
+          setError(null);
+          setTradeLogged(false);
+          addImageToSaved(text);
+          return;
+        }
+      }
+
+      alert("ক্লিপবোর্ডে কোনো ইমেজ পাওয়া যায়নি! প্রথমে চার্ট স্ক্রিনশট কপি (Ctrl+C বা Win+Shift+S) করুন, তারপর কীবোর্ডের Ctrl + V চাপুন।");
+    } catch (err: any) {
+      console.warn("Clipboard access warning:", err);
+      alert("সরাসরি স্ক্রিনশট পেস্ট করতে কীবোর্ডের Ctrl + V চাপুন অথবা ড্রপজোনটিতে ক্লিক করে ফাইল সিলেক্ট করুন।");
+    }
+  };
+
+  const handlePaste = useCallback((e: ClipboardEvent) => {
+    if (!e.clipboardData) return;
+
+    const imageFiles = extractImageFilesFromClipboard(e.clipboardData);
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      processMultipleFiles(imageFiles);
+      return;
+    }
+
+    // If no image file, check for data:image URL or text
+    const textData = e.clipboardData.getData('text/plain')?.trim();
+    if (textData) {
+      if (textData.startsWith('data:image/') || /^https?:\/\/.*\.(png|jpg|jpeg|webp)(\?.*)?$/i.test(textData)) {
+        e.preventDefault();
+        e.stopPropagation();
+        setImage(textData);
+        setResult(null);
+        setError(null);
+        setTradeLogged(false);
+        addImageToSaved(textData);
+        return;
+      }
+
+      const target = e.target as HTMLElement;
+      if (target && target.tagName !== 'TEXTAREA' && target.tagName !== 'INPUT') {
+        setUserContext((prev) => prev ? prev + '\n' + textData : textData);
       }
     }
-
-    if (imageFiles.length > 0) {
-      processMultipleFiles(imageFiles);
-    }
-  }, [result, tradeLogged]);
+  }, [isAdmin, result, tradeLogged]);
 
   useEffect(() => {
-    window.addEventListener('paste', handlePaste);
-    return () => window.removeEventListener('paste', handlePaste);
+    // Capture mode ensures paste is caught at the highest level without being suppressed
+    window.addEventListener('paste', handlePaste, { capture: true });
+    return () => window.removeEventListener('paste', handlePaste, { capture: true });
   }, [handlePaste]);
 
    const handleLogout = async () => {
@@ -2154,6 +2267,14 @@ export default function App() {
                   <textarea
                     value={userContext}
                     onChange={(e) => setUserContext(e.target.value)}
+                    onPaste={(e) => {
+                      const files = extractImageFilesFromClipboard(e.clipboardData);
+                      if (files.length > 0) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        processMultipleFiles(files);
+                      }
+                    }}
                     disabled={analyzing}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey && image && !analyzing) {
@@ -2538,6 +2659,7 @@ export default function App() {
 
                 {/* Main Upload Dropzone (Selector 1) */}
                 <label 
+                  tabIndex={0}
                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsMainDragging(true); }}
                   onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsMainDragging(false); }}
                   onDrop={(e) => {
@@ -2548,11 +2670,19 @@ export default function App() {
                       processMultipleFiles(e.dataTransfer.files);
                     }
                   }}
+                  onPaste={(e) => {
+                    const files = extractImageFilesFromClipboard(e.clipboardData);
+                    if (files.length > 0) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      processMultipleFiles(files);
+                    }
+                  }}
                   className={`group relative h-96 flex flex-col items-center justify-center border-2 ${
                     isMainDragging 
                       ? 'border-emerald-400 bg-emerald-500/20 scale-[1.01] shadow-[0_0_60px_rgba(16,185,129,0.35)]' 
                       : 'border-emerald-500/25 hover:border-emerald-400/60 bg-[#090b0e]/90 hover:bg-[#0c0f14]/95 shadow-[0_0_50px_rgba(16,185,129,0.05)] hover:shadow-[0_0_60px_rgba(16,185,129,0.15)]'
-                  } rounded-2xl backdrop-blur-md transition-all duration-300 cursor-pointer overflow-hidden p-8 text-center`}
+                  } rounded-2xl backdrop-blur-md transition-all duration-300 cursor-pointer overflow-hidden p-8 text-center focus:outline-none focus:border-emerald-400`}
                 >
                    <input type="file" multiple className="hidden" onChange={handleFileUpload} accept="image/*" />
                    <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle_at_center,_#10b981_0%,_transparent_75%)] group-hover:opacity-25 transition-opacity duration-500" />
@@ -2567,39 +2697,68 @@ export default function App() {
                    <div className="absolute bottom-3 right-3 w-4 h-4 border-b-2 border-r-2 border-emerald-500/30 group-hover:border-emerald-400 transition-colors" />
 
                    {/* Pulsing Outer Ring */}
-                   <div className="relative mb-6">
+                   <div className="relative mb-5">
                      <div className="absolute inset-0 rounded-full bg-emerald-500/10 blur-md group-hover:scale-125 transition-transform duration-500 animate-pulse" />
                      <img 
                        src={tradeLensLogo} 
                        alt="TradeLens Logo" 
-                       className="relative w-28 h-28 rounded-full border-2 border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.25)] group-hover:scale-105 group-hover:border-emerald-400/60 transition-all duration-500" 
+                       className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.25)] group-hover:scale-105 group-hover:border-emerald-400/60 transition-all duration-500" 
                        referrerPolicy="no-referrer" 
                      />
                    </div>
 
-                  <div className="space-y-3 relative z-10">
-                    <h2 className="text-2xl font-black text-white tracking-wider text-center uppercase bg-gradient-to-r from-white via-emerald-100 to-white bg-clip-text">
+                  <div className="space-y-2.5 relative z-10 max-w-md">
+                    <h2 className="text-xl sm:text-2xl font-black text-white tracking-wider text-center uppercase bg-gradient-to-r from-white via-emerald-100 to-white bg-clip-text">
                       {isMainDragging ? 'এখানে ড্রপ করুন (Release to Save & Analyze)' : 'Analysis Target Required'}
                     </h2>
                     <p className="text-emerald-400/90 uppercase tracking-widest text-[11px] font-black text-center flex items-center justify-center gap-2">
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
                       এক বা একাধিক Chart ইমেজ আপলোড বা ড্রপ করুন (সব অটো সেভ হবে)
                     </p>
-                    <p className="text-gray-400 text-[10px] uppercase font-bold tracking-widest mt-2 flex items-center justify-center gap-1.5">
-                      <span>(Ctrl+V দিয়ে সরাসরি পেস্ট করুন বা ক্লিক করে ফাইল সিলেক্ট করুন)</span>
+                    <p className="text-gray-400 text-[10px] uppercase font-bold tracking-widest flex items-center justify-center gap-1.5">
+                      <span>(স্ক্রিনশট নিয়ে সরাসরি Ctrl+V চাপুন বা ফাইল সিলেক্ট করুন)</span>
                     </p>
+
+                    {/* Instant Paste Clipboard Action Button */}
+                    <div className="pt-2 flex items-center justify-center relative z-20">
+                      <button
+                        type="button"
+                        onClick={handleClipboardPasteClick}
+                        className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/50 hover:border-emerald-400 text-emerald-300 hover:text-white text-xs font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.25)] flex items-center gap-2 cursor-pointer active:scale-95 group/btn"
+                      >
+                        <Copy className="w-3.5 h-3.5 group-hover/btn:scale-110 transition-transform" />
+                        <span>📋 ক্লিপবোর্ড থেকে স্ক্রিনশট পেস্ট করুন</span>
+                      </button>
+                    </div>
                   </div>
                 </label>
                 
-                {/* Mobile Text Context */}
+                {/* Mobile Text Context (Selector 1 target input) */}
                 <div className="mt-6 lg:hidden space-y-2 text-left animate-fade-in">
-                  <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">কাস্টম নির্দেশনা (ঐচ্ছিক)</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">কাস্টম নির্দেশনা (ঐচ্ছিক)</p>
+                    <button
+                      type="button"
+                      onClick={handleClipboardPasteClick}
+                      className="text-[10.5px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 cursor-pointer bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20"
+                    >
+                      <Copy className="w-3 h-3" /> পেস্ট করুন
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={userContext}
                     disabled={analyzing}
                     onChange={(e) => setUserContext(e.target.value)}
-                    placeholder="যেমন: সাপোর্ট জোন বা মার্কেট ট্রেন্ড..."
+                    onPaste={(e) => {
+                      const files = extractImageFilesFromClipboard(e.clipboardData);
+                      if (files.length > 0) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        processMultipleFiles(files);
+                      }
+                    }}
+                    placeholder="যেমন: সাপোর্ট জোন বা মার্কেট ট্রেন্ড... (এখানেও স্ক্রিনশট পেস্ট করা যাবে)"
                     className="w-full bg-[#0a0b0d] border border-gray-800 rounded-lg p-3 text-xs text-gray-300 focus:outline-none focus:border-emerald-500/50"
                   />
                 </div>
@@ -2620,6 +2779,22 @@ export default function App() {
                   {/* Header in the analysis box */}
                   <div className="px-4 py-2.5 sm:px-6 sm:py-3 border-b border-white/5 flex flex-col sm:flex-row items-center justify-between shrink-0 bg-black/40 backdrop-blur-sm z-10 gap-2">
                     <div className="flex items-center space-x-2 text-[9px] sm:text-[10px] font-mono">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImage(null);
+                          setResult(null);
+                          setError(null);
+                          setUserContext('');
+                          setTradeLogged(false);
+                          setLoggedOutcome(null);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-gray-800/90 hover:bg-gray-700 text-gray-200 hover:text-white border border-gray-700/80 flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95 group shrink-0 mr-1"
+                        title="আগের পেজে ফিরে যান (Go Back)"
+                      >
+                        <ArrowLeft className="w-3.5 h-3.5 text-emerald-400 group-hover:-translate-x-0.5 transition-transform" />
+                        <span>← ব্যাক (Back)</span>
+                      </button>
                       <span className="text-emerald-400 whitespace-nowrap">● Mode: {analyzing ? 'ACTIVE' : 'STATIC'}</span>
                       <span className="text-gray-600">|</span>
                       <span className="text-gray-400 font-bold uppercase tracking-widest whitespace-nowrap">NEURAL FEED</span>
@@ -2790,12 +2965,29 @@ export default function App() {
                                     {error}
                                   </p>
                                 </div>
-                                <button
-                                  onClick={startAnalysis}
-                                  className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-lg transition-colors uppercase tracking-widest cursor-pointer"
-                                >
-                                  Try Again
-                                </button>
+                                <div className="flex items-center justify-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setImage(null);
+                                      setResult(null);
+                                      setError(null);
+                                      setUserContext('');
+                                      setTradeLogged(false);
+                                      setLoggedOutcome(null);
+                                    }}
+                                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 font-bold text-xs rounded-lg transition-colors uppercase tracking-widest cursor-pointer flex items-center gap-1.5 border border-gray-700 active:scale-95"
+                                  >
+                                    <ArrowLeft className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span>← ব্যাক (Back)</span>
+                                  </button>
+                                  <button
+                                    onClick={startAnalysis}
+                                    className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs rounded-lg transition-colors uppercase tracking-widest cursor-pointer active:scale-95 shadow-[0_0_12px_rgba(16,185,129,0.3)]"
+                                  >
+                                    Try Again
+                                  </button>
+                                </div>
                               </motion.div>
                             ) : result ? (
                               <motion.div 
@@ -2994,112 +3186,195 @@ export default function App() {
                                 </div>
                               </motion.div>
                             ) : (
-                              <div className="flex-1 flex flex-col justify-center text-center space-y-5 py-4">
-                               <button 
-                                 type="button"
-                                 onClick={startAnalysis}
-                                 className="w-16 h-16 mx-auto rounded-full border border-emerald-500/30 overflow-hidden relative group/reload flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] bg-[#0b0d12]"
-                                 title="Reload & Start Analysis"
-                               >
-                                 {image ? (
-                                   <img 
-                                     src={image} 
-                                     alt="Uploaded preview" 
-                                     referrerPolicy="no-referrer"
-                                     className="absolute inset-0 w-full h-full object-cover opacity-65 group-hover/reload:scale-110 group-hover/reload:opacity-45 transition-all duration-300"
-                                   />
-                                 ) : null}
-                                 <div className="absolute inset-0 bg-emerald-950/20 group-hover/reload:bg-emerald-950/40 transition-colors" />
-                                 <RefreshCw className="w-5 h-5 text-emerald-400 relative z-10 animate-[spin_8s_linear_infinite]" />
-                               </button>
-                               
-                               <div className="space-y-4 max-w-sm mx-auto w-full px-2 text-left">
-                                  <div className="space-y-1 text-center">
-                                     <p className="text-gray-400 uppercase tracking-widest text-[10px] font-black">Awaiting analysis pulse</p>
-                                     <p className="text-[11px] text-gray-500 font-medium">কাস্টম নির্দেশনা দিয়ে বিশ্লেষণ করতে "Analyze Now" চাপুন।</p>
-                                  </div>
+                              <div className="flex-1 flex flex-col justify-center text-center space-y-4 py-3 sm:py-4">
+                                {/* Top Back & Deselect bar */}
+                                <div className="flex items-center justify-between max-w-sm mx-auto w-full px-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setImage(null);
+                                      setResult(null);
+                                      setError(null);
+                                      setUserContext('');
+                                      setTradeLogged(false);
+                                      setLoggedOutcome(null);
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-850 hover:bg-gray-750 text-gray-200 hover:text-white border border-gray-700/80 text-xs font-bold transition-all cursor-pointer shadow-md active:scale-95 group"
+                                    title="ইমেজ বাতিল করে পেছনে ফিরে যান"
+                                  >
+                                    <ArrowLeft className="w-3.5 h-3.5 text-emerald-400 group-hover:-translate-x-0.5 transition-transform" />
+                                    <span>← ব্যাক করুন (Back)</span>
+                                  </button>
                                   
-                                  {/* Custom instruction textarea right inside the signal tab */}
-                                  {/* Signal Filter Selector Mode */}
-                                   <div className="space-y-1.5 bg-black/40 border border-gray-850 p-3 rounded-xl">
-                                     <label className="text-[10px] uppercase font-extrabold text-gray-300 flex items-center justify-between">
-                                       <span className="flex items-center gap-1.5">
-                                         <Sliders className="w-3.5 h-3.5 text-emerald-400" /> সিগন্যাল ফিল্টার মোড:
-                                       </span>
-                                       <span className="text-[9px] font-mono font-bold text-emerald-400">{signalMode === 'sure_shot' ? '80%+' : '70%+'}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setImage(null);
+                                      setResult(null);
+                                      setError(null);
+                                      setUserContext('');
+                                      setTradeLogged(false);
+                                      setLoggedOutcome(null);
+                                    }}
+                                    className="text-[11px] font-semibold text-rose-400 hover:text-rose-300 flex items-center gap-1 bg-rose-500/10 hover:bg-rose-500/20 px-2.5 py-1 rounded-lg border border-rose-500/25 cursor-pointer transition-all active:scale-95"
+                                    title="ইমেজ বাতিল করে নতুন ইমেজ নির্বাচন করুন"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                    <span>ছবি পরিবর্তন</span>
+                                  </button>
+                                </div>
+
+                                <div className="relative inline-block mx-auto">
+                                  <button 
+                                    type="button"
+                                    onClick={startAnalysis}
+                                    className="w-20 h-20 mx-auto rounded-2xl border-2 border-emerald-500/40 overflow-hidden relative group/reload flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(16,185,129,0.25)] bg-[#0b0d12]"
+                                    title="অ্যানালাইসিস শুরু করতে ক্লিক করুন"
+                                  >
+                                    {image ? (
+                                      <img 
+                                        src={image} 
+                                        alt="Uploaded preview" 
+                                        referrerPolicy="no-referrer"
+                                        className="absolute inset-0 w-full h-full object-cover opacity-85 group-hover/reload:scale-110 group-hover/reload:opacity-60 transition-all duration-300"
+                                      />
+                                    ) : null}
+                                    <div className="absolute inset-0 bg-emerald-950/20 group-hover/reload:bg-emerald-950/40 transition-colors" />
+                                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/reload:opacity-100 bg-black/60 transition-opacity">
+                                      <RefreshCw className="w-6 h-6 text-emerald-400 animate-[spin_8s_linear_infinite]" />
+                                    </div>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setImage(null);
+                                      setResult(null);
+                                      setError(null);
+                                      setUserContext('');
+                                      setTradeLogged(false);
+                                      setLoggedOutcome(null);
+                                    }}
+                                    className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow-lg border border-white/20 cursor-pointer active:scale-90 transition-transform"
+                                    title="ইমেজ বাতিল করুন (Remove Image)"
+                                  >
+                                    <X className="w-3.5 h-3.5 stroke-[3]" />
+                                  </button>
+                                </div>
+                                
+                                <div className="space-y-4 max-w-sm mx-auto w-full px-2 text-left">
+                                   <div className="space-y-1 text-center">
+                                      <p className="text-gray-400 uppercase tracking-widest text-[10px] font-black">Awaiting analysis pulse</p>
+                                      <p className="text-[11px] text-gray-500 font-medium">কাস্টম নির্দেশনা দিয়ে বিশ্লেষণ করতে "Analyze Now" চাপুন অথবা পেছনে যেতে "ব্যাক" চাপুন।</p>
+                                   </div>
+                                   
+                                   {/* Custom instruction textarea right inside the signal tab */}
+                                   {/* Signal Filter Selector Mode */}
+                                    <div className="space-y-1.5 bg-black/40 border border-gray-850 p-3 rounded-xl">
+                                      <label className="text-[10px] uppercase font-extrabold text-gray-300 flex items-center justify-between">
+                                        <span className="flex items-center gap-1.5">
+                                          <Sliders className="w-3.5 h-3.5 text-emerald-400" /> সিগন্যাল ফিল্টার মোড:
+                                        </span>
+                                        <span className="text-[9px] font-mono font-bold text-emerald-400">{signalMode === 'sure_shot' ? '80%+' : '70%+'}</span>
+                                      </label>
+                                      <div className="grid grid-cols-2 gap-2 pt-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => setSignalMode('sure_shot')}
+                                          className={`p-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 border cursor-pointer ${
+                                            signalMode === 'sure_shot'
+                                              ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                                              : 'bg-[#14151a] text-gray-400 border-gray-800 hover:text-white hover:border-gray-700'
+                                          }`}
+                                        >
+                                          <Zap className="w-3.5 h-3.5" />
+                                          <span>Sure Shot (80%+)</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setSignalMode('normal')}
+                                          className={`p-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 border cursor-pointer ${
+                                            signalMode === 'normal'
+                                              ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                                              : 'bg-[#14151a] text-gray-400 border-gray-800 hover:text-white hover:border-gray-700'
+                                          }`}
+                                        >
+                                          <Target className="w-3.5 h-3.5" />
+                                          <span>Normal (70%+)</span>
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    <div className="space-y-1.5 bg-black/40 border border-gray-850 p-3.5 rounded-xl">
+                                     <label className="text-[10px] uppercase font-extrabold text-gray-400 flex items-center gap-1.5">
+                                       <MessageSquare className="w-3.5 h-3.5 text-emerald-500" /> কাস্টম নির্দেশনা (ঐচ্ছিক)
                                      </label>
-                                     <div className="grid grid-cols-2 gap-2 pt-1">
-                                       <button
-                                         type="button"
-                                         onClick={() => setSignalMode('sure_shot')}
-                                         className={`p-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 border cursor-pointer ${
-                                           signalMode === 'sure_shot'
-                                             ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                                             : 'bg-[#14151a] text-gray-400 border-gray-800 hover:text-white hover:border-gray-700'
-                                         }`}
-                                       >
-                                         <Zap className="w-3.5 h-3.5" />
-                                         <span>Sure Shot (80%+)</span>
-                                       </button>
-                                       <button
-                                         type="button"
-                                         onClick={() => setSignalMode('normal')}
-                                         className={`p-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 border cursor-pointer ${
-                                           signalMode === 'normal'
-                                             ? 'bg-emerald-500 text-black border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                                             : 'bg-[#14151a] text-gray-400 border-gray-800 hover:text-white hover:border-gray-700'
-                                         }`}
-                                       >
-                                         <Target className="w-3.5 h-3.5" />
-                                         <span>Normal (70%+)</span>
-                                       </button>
-                                     </div>
+                                     <textarea
+                                       value={userContext}
+                                       onChange={(e) => setUserContext(e.target.value)}
+                                       onPaste={(e) => {
+                                         const files = extractImageFilesFromClipboard(e.clipboardData);
+                                         if (files.length > 0) {
+                                           e.preventDefault();
+                                           e.stopPropagation();
+                                           processMultipleFiles(files);
+                                         }
+                                       }}
+                                       disabled={analyzing}
+                                       placeholder="যেমন: এই চার্টের পরবর্তী ক্যান্ডেলের ট্রেন্ড কি হবে? সাপোর্ট জোন চিহ্নিত করে বলুন।"
+                                       className="w-full bg-[#14151a] border border-gray-850 rounded p-2.5 text-xs text-gray-300 resize-none focus:outline-none focus:border-emerald-500/50 h-20 custom-scrollbar"
+                                     />
                                    </div>
 
-                                   <div className="space-y-1.5 bg-black/40 border border-gray-850 p-3.5 rounded-xl">
-                                    <label className="text-[10px] uppercase font-extrabold text-gray-400 flex items-center gap-1.5">
-                                      <MessageSquare className="w-3.5 h-3.5 text-emerald-500" /> কাস্টম নির্দেশনা (ঐচ্ছিক)
-                                    </label>
-                                    <textarea
-                                      value={userContext}
-                                      onChange={(e) => setUserContext(e.target.value)}
-                                      disabled={analyzing}
-                                      placeholder="যেমন: এই চার্টের পরবর্তী ক্যান্ডেলের ট্রেন্ড কি হবে? সাপোর্ট জোন চিহ্নিত করে বলুন।"
-                                      className="w-full bg-[#14151a] border border-gray-850 rounded p-2.5 text-xs text-gray-300 resize-none focus:outline-none focus:border-emerald-500/50 h-20 custom-scrollbar"
-                                    />
-                                  </div>
+                                   {/* Trading Guidelines Advisory Note */}
+                                   <div className="p-3 bg-amber-500/10 border border-amber-500/25 rounded-xl text-left space-y-1.5">
+                                     <div className="flex items-center gap-1.5 text-amber-400 font-black text-[10px] uppercase tracking-wider font-mono">
+                                       <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                                       <span>জরুরি ট্রেডিং নিয়মাবলী:</span>
+                                     </div>
+                                     <ul className="text-[10.5px] text-amber-200/90 leading-relaxed font-medium space-y-1 list-disc list-inside">
+                                       <li>AM বা PM যেকোনো সময় <strong>১:০০ টা থেকে ২:০০ টা</strong> পর্যন্ত ট্রেড নিবেন না।</li>
+                                       <li>কমপক্ষে <strong>৫ মিনিট পর পর</strong> ট্রেড নিন।</li>
+                                       <li>সারাদিনে <strong>১০ টা ট্রেড</strong> নিলেই অনেক, বেশি লোভ করবেন না।</li>
+                                     </ul>
+                                   </div>
 
-                                  {/* Trading Guidelines Advisory Note */}
-                                  <div className="p-3 bg-amber-500/10 border border-amber-500/25 rounded-xl text-left space-y-1.5">
-                                    <div className="flex items-center gap-1.5 text-amber-400 font-black text-[10px] uppercase tracking-wider font-mono">
-                                      <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                                      <span>জরুরি ট্রেডিং নিয়মাবলী:</span>
-                                    </div>
-                                    <ul className="text-[10.5px] text-amber-200/90 leading-relaxed font-medium space-y-1 list-disc list-inside">
-                                      <li>AM বা PM যেকোনো সময় <strong>১:০০ টা থেকে ২:০০ টা</strong> পর্যন্ত ট্রেড নিবেন না।</li>
-                                      <li>কমপক্ষে <strong>৫ মিনিট পর পর</strong> ট্রেড নিন।</li>
-                                      <li>সারাদিনে <strong>১০ টা ট্রেড</strong> নিলেই অনেক, বেশি লোভ করবেন না।</li>
-                                    </ul>
-                                  </div>
+                                   {/* Action Buttons: Back + Analyze/Login */}
+                                   <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                                     <button
+                                       type="button"
+                                       onClick={() => {
+                                         setImage(null);
+                                         setResult(null);
+                                         setError(null);
+                                         setUserContext('');
+                                         setTradeLogged(false);
+                                         setLoggedOutcome(null);
+                                       }}
+                                       className="py-3 px-4 bg-gray-800/90 hover:bg-gray-750 text-gray-200 hover:text-white font-bold text-xs uppercase tracking-wider rounded-lg transition-all border border-gray-700/70 flex items-center justify-center gap-2 cursor-pointer active:scale-95 shadow-sm sm:w-2/5"
+                                     >
+                                       <ArrowLeft className="w-4 h-4 text-emerald-400" />
+                                       <span>← ব্যাক</span>
+                                     </button>
 
-                                  {!user ? (
-                                    <button 
-                                      onClick={handleGoogleLogin}
-                                      className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-500 text-black rounded-lg font-black text-xs uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] cursor-pointer"
-                                    >
-                                      <LogIn className="w-4 h-4" />
-                                      Login to Start
-                                    </button>
-                                  ) : (
-                                    <button
-                                      onClick={startAnalysis}
-                                      className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-widest rounded-lg transition-all animate-pulse-glowing flex items-center justify-center gap-2 cursor-pointer"
-                                    >
-                                      <Terminal className="w-4 h-4" />
-                                      Analyze Now
-                                    </button>
-                                  )}
-                               </div>
+                                     {!user ? (
+                                       <button 
+                                         onClick={handleGoogleLogin}
+                                         className="flex-1 flex items-center justify-center gap-2 py-3 bg-emerald-500 text-black rounded-lg font-black text-xs uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] cursor-pointer"
+                                       >
+                                         <LogIn className="w-4 h-4" />
+                                         Login to Start
+                                       </button>
+                                     ) : (
+                                       <button
+                                         onClick={startAnalysis}
+                                         className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-widest rounded-lg transition-all animate-pulse-glowing flex items-center justify-center gap-2 cursor-pointer"
+                                       >
+                                         <Terminal className="w-4 h-4" />
+                                         Analyze Now
+                                       </button>
+                                     )}
+                                   </div>
+                                </div>
                               </div>
                             )}
                           </AnimatePresence>
